@@ -7,8 +7,6 @@
 #include <QTimer>
 #include <QEvent>
 
-QT_CHARTS_USE_NAMESPACE
-
 /**
  * @brief The AnimatedChartView class provides a QChartView with enhanced animations and transitions.
  * 

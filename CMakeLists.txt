@@ -17,7 +17,7 @@ else()
 endif()
 
 # Find required packages
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Charts)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Charts Concurrent)
 
 # libpcap configuration for Windows
 # vcpkg toolchain will be set via command line
@@ -111,6 +111,7 @@ target_link_libraries(NetWire PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Charts
+    Qt6::Concurrent
 )
 
 # Only link pcap libraries if found
@@ -127,6 +128,12 @@ endif()
 target_include_directories(NetWire PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${PCAP_INCLUDE_DIRS}
+)
+
+# Add Qt Charts include directory
+target_include_directories(NetWire PRIVATE
+    ${Qt6Charts_INCLUDE_DIRS}
+    ${Qt6Charts_INCLUDE_DIRS}/QtCharts
 )
 
 # Install rules

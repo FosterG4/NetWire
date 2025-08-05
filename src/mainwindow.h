@@ -2,10 +2,11 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include <QChart>
-#include <QChartView>
-#include <QLineSeries>
-#include <QValueAxis>
+#include <QWidget>
+#include <QtCharts/QChart>
+#include <QtCharts/QChartView>
+#include <QtCharts/QLineSeries>
+#include <QtCharts/QValueAxis>
 #include <QTimer>
 #include <QStandardItemModel>
 #include <QSortFilterProxyModel>
@@ -13,13 +14,17 @@
 #include <QActionGroup>
 #include <QSettings>
 #include <QSystemTrayIcon>
+#include <QTableView>
+#include <QTableWidget>
+#include <QComboBox>
+#include <QLabel>
 #include "networkmonitor.h"
 #include "firewallrulesdialog.h"
 #include "alertmanager.h"
 #include "alertsdialog.h"
 #include "dashboard/dashboardwidget.h"
+#include "charts/networkheatmap.h"
 
-QT_CHARTS_USE_NAMESPACE
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
@@ -39,6 +44,28 @@ public:
     void updateData(const QMap<QString, NetworkMonitor::NetworkStats> &stats);
     
 private:
+    QString formatBytes(quint64 bytes) const {
+        static const char *suffixes[] = {"B", "KB", "MB", "GB", "TB", "PB", "EB"};
+        int i = 0;
+        double size = bytes;
+        while (size >= 1024 && i < 6) {
+            size /= 1024;
+            i++;
+        }
+        return QString("%1 %2").arg(size, 0, 'f', i > 0 ? 2 : 0).arg(suffixes[i]);
+    }
+    
+    QString formatSpeed(double bytesPerSecond) const {
+        static const char *units[] = {"B/s", "KB/s", "MB/s", "GB/s", "TB/s"};
+        int i = 0;
+        double speed = bytesPerSecond;
+        while (speed >= 1024 && i < 4) {
+            speed /= 1024;
+            i++;
+        }
+        return QString("%1 %2").arg(speed, 0, 'f', i > 0 ? 2 : 0).arg(units[i]);
+    }
+    
     struct AppData {
         QString name;
         QIcon icon;
@@ -59,6 +86,9 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
+    // Theme management
+    enum class Theme { System, Light, Dark };
+    
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
@@ -72,11 +102,15 @@ private slots:
     void showContextMenu(const QPoint &pos);
     void blockApplication();
     void showApplicationDetails();
+    void updateInterfaceList();
+    void setMonitoring(bool enabled);
+    void exportData();
     void showFirewallRules();
     void showAlerts();
     void onAlertReceived(const AlertManager::Alert &alert);
-    void switchTheme(bool checked);
+    void switchTheme(bool save, Theme theme);
     void updateTheme();
+    void loadTheme();
     
     // System tray slots
     void trayIconActivated(QSystemTrayIcon::ActivationReason reason);
@@ -84,15 +118,21 @@ private slots:
     void minimizeToTray();
     void restoreFromTray();
     void quitApplication();
+    
+    // Test functions
+    void testAlertScenarios();
 
 private:
     void setupUI();
+    void setupMenuBar();
+    void setupToolbar();
     void setupConnections();
-    void setupCharts();
     void setupSystemTray();
+    void setupCharts();
     void updateTrafficGraph();
     void updateApplicationList();
     void updateConnectionList();
+    void updateDashboard();
     void updateStatusBar();
     QString formatBytes(quint64 bytes) const;
     QString formatSpeed(double bytesPerSecond) const;
@@ -100,8 +140,13 @@ private:
     Ui::MainWindow *ui;
     NetworkMonitor *m_networkMonitor;
     
+    // Application data model
+    ApplicationTableModel *m_appsModel;
+    
+    // UI components
+    QLabel *m_statusLabel;
+    
     // Theme management
-    enum class Theme { System, Light, Dark };
     Theme m_currentTheme;
     QActionGroup *m_themeActionGroup;
     QAction *m_systemThemeAction;
@@ -135,6 +180,9 @@ private:
     
     // Dashboard
     DashboardWidget *m_dashboardWidget;
+    
+    // Network activity heatmap
+    NetworkHeatmap *m_networkHeatmap;
     
     // System tray
     QSystemTrayIcon *m_trayIcon;

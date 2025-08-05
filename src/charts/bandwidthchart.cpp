@@ -1,8 +1,13 @@
 #include "bandwidthchart.h"
+#include <QtWidgets/QApplication>
 #include <QPen>
 #include <QColor>
 #include <QMessageBox>
+#include <QEasingCurve>
+#include <QPropertyAnimation>
+#include <QTimer>
 #include <stdexcept>
+#include <QtCore/QtGlobal>
 
 BandwidthChart::BandwidthChart(QWidget *parent)
     : QChartView(parent)
@@ -93,26 +98,40 @@ void BandwidthChart::setMaxPoints(int maxPoints)
     m_axisX->setRange(0, m_maxPoints - 1);
 }
 
+void BandwidthChart::setAnimating(bool animating)
+{
+    m_isAnimating = animating;
+}
+
 void BandwidthChart::setupAnimations()
 {
-    // Create data update animation
-    m_dataUpdateAnimation = new QPropertyAnimation(this, "geometry");
-    m_dataUpdateAnimation->setDuration(ANIMATION_DURATION);
-    m_dataUpdateAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    // Initialize member variables if not already done
+    if (!m_dataUpdateAnimation) {
+        m_dataUpdateAnimation = new QPropertyAnimation(this);
+        m_dataUpdateAnimation->setDuration(ANIMATION_DURATION);
+        m_dataUpdateAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    }
     
-    // Create series animation
-    m_seriesAnimation = new QPropertyAnimation(this, "geometry");
-    m_seriesAnimation->setDuration(ANIMATION_DURATION);
-    m_seriesAnimation->setEasingCurve(QEasingCurve::OutQuad);
+    if (!m_seriesAnimation) {
+        m_seriesAnimation = new QPropertyAnimation(this);
+        m_seriesAnimation->setDuration(ANIMATION_DURATION);
+        m_seriesAnimation->setEasingCurve(QEasingCurve::OutQuad);
+    }
     
-    // Create animation timer
-    m_animationTimer = new QTimer(this);
-    m_animationTimer->setSingleShot(true);
-    m_animationTimer->setInterval(50);
+    // Create animation timer if not already created
+    if (!m_animationTimer) {
+        m_animationTimer = new QTimer(this);
+        m_animationTimer->setSingleShot(true);
+        m_animationTimer->setInterval(50);
+        
+        // Connect the timer timeout to update the animation state
+        QObject::connect(m_animationTimer, &QTimer::timeout, this, [this]() {
+            setAnimating(false);
+        });
+    }
     
-    connect(m_animationTimer, &QTimer::timeout, this, [this]() {
-        m_isAnimating = false;
-    });
+    // Initialize animation state using the setter
+    setAnimating(false);
 }
 
 void BandwidthChart::updateYAxisRange()

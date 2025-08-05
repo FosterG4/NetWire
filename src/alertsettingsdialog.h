@@ -2,6 +2,7 @@
 #define ALERTSETTINGSDIALOG_H
 
 #include <QDialog>
+#include <QPushButton>
 #include "alertmanager.h"
 
 namespace Ui {

@@ -5,11 +5,11 @@
 #include <QtCharts/QChart>
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
-#include <QPropertyAnimation>
 #include <QTimer>
 #include <QDebug>
-
-QT_CHARTS_USE_NAMESPACE
+#include <QPropertyAnimation>
+#include <QObject>
+#include <QtCore/QtGlobal>
 
 /**
  * @brief The BandwidthChart class provides a widget for displaying network bandwidth usage over time.
@@ -55,6 +55,12 @@ public slots:
      * @return The maximum number of points being displayed.
      */
     int maxPoints() const { return m_maxPoints; }
+    
+    /**
+     * @brief Sets the animation state.
+     * @param animating Whether the chart is currently animating.
+     */
+    void setAnimating(bool animating);
 
 signals:
     /**
@@ -67,6 +73,7 @@ private:
     void setupChart();
     void setupAxes();
     void setupSeries();
+    void setupAnimations();
     void updateYAxisRange();
 
     QChart *m_chart;

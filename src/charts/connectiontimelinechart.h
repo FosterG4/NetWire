@@ -6,10 +6,9 @@
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QDateTimeAxis>
 #include <QtCharts/QValueAxis>
+
 #include <QDateTime>
 #include <QDebug>
-
-QT_CHARTS_USE_NAMESPACE
 
 /**
  * @brief The ConnectionTimelineChart class provides a widget for displaying connection history over time.

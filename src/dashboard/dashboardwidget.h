@@ -19,7 +19,7 @@ class DashboardWidget : public QWidget
 public:
     explicit DashboardWidget(QWidget *parent = nullptr);
 
-private slots:
+public slots:
     void updateBandwidthData(quint64 download, quint64 upload);
     void updateConnectionCount(int count);
     void updateSystemResources(double cpu, double memory);

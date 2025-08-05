@@ -3,6 +3,10 @@
 
 #include <QDialog>
 #include <QStandardItemModel>
+#include <QLabel>
+#include <QGroupBox>
+#include <QTextEdit>
+#include <QPushButton>
 #include "alertmanager.h"
 
 namespace Ui {
@@ -60,6 +64,11 @@ private:
     void addAlertToModel(const AlertManager::Alert &alert, QStandardItemModel *model);
     void updateAlertInModel(const AlertManager::Alert &alert, QStandardItemModel *model);
     void removeAlertFromModel(int alertId, QStandardItemModel *model);
+    
+    // Helper methods for alert display
+    static QString alertTypeToString(AlertManager::AlertType type);
+    static QString alertSeverityToString(AlertManager::Severity severity);
+    static QString formatBytes(qint64 bytes);
     
     // Column indices
     enum AlertColumns {

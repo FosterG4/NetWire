@@ -2,11 +2,9 @@
 #define APPLICATIONPIECHART_H
 
 #include <QtCharts/QChartView>
-#include <QtCharts/QChart>
 #include <QtCharts/QPieSeries>
+#include <QtCharts/QPieSlice>
 #include <QDebug>
-
-QT_CHARTS_USE_NAMESPACE
 
 /**
  * @brief The ApplicationPieChart class provides a widget for displaying application network usage as a pie chart.
