@@ -9,15 +9,16 @@
 #include <QIcon>
 #include <QMutex>
 #include <QTimer>
+#include <QNetworkInterface>
+#include <QHostAddress>
+#include <QProcess>
+#include <QFileIconProvider>
+#include <QFuture>
+#include <QFutureWatcher>
+
 #ifdef HAVE_PCAP
 #include <pcap.h>
 #endif
-#include <iphlpapi.h>
-#include <ws2tcpip.h>
-#include <windows.h>
-
-#pragma comment(lib, "iphlpapi.lib")
-#pragma comment(lib, "ws2_32.lib")
 
 class NetworkMonitor : public QObject
 {
@@ -32,10 +33,19 @@ public:
         QString processName;
         QIcon processIcon;
         qint64 processId;
+        quint64 downloadRate;
+        quint64 uploadRate;
+        quint64 downloadTotal;
+        quint64 uploadTotal;
+        quint64 totalDownloaded;
+        quint64 totalUploaded;
         
         NetworkStats() : bytesReceived(0), bytesSent(0), 
                         packetsReceived(0), packetsSent(0), 
-                        processId(-1) {}
+                        processId(-1), downloadRate(0), 
+                        uploadRate(0), downloadTotal(0),
+                        uploadTotal(0), totalDownloaded(0),
+                        totalUploaded(0) {}
     };
     
     struct ConnectionInfo {
@@ -55,9 +65,12 @@ public:
     QStringList getAvailableInterfaces() const;
     bool startCapture(const QString &interfaceName);
     void stopCapture();
+    void updateNetworkStats();
     QMap<qint64, NetworkStats> getStats() const;
     QList<ConnectionInfo> getActiveConnections() const;
     QMap<QString, NetworkStats> getStatsByApplication() const;
+    QString getApplicationPath(const QString &appName) const;
+    NetworkStats getApplicationStats(const QString &appName) const;
 
 signals:
     void networkDataUpdated();
@@ -75,6 +88,9 @@ private:
     QMap<QString, NetworkStats> m_interfaceStats;
     QList<ConnectionInfo> m_activeConnections;
     mutable QMutex m_mutex; // For thread safety
+    QFuture<void> m_captureFuture; // Store the background thread
+    QFutureWatcher<void> *m_captureWatcher; // Monitor the background thread
+    QTimer *m_updateTimer; // Timer for updating active connections
     
 #ifdef HAVE_PCAP
     void processPacket(const struct pcap_pkthdr *pkthdr, const u_char *packet);

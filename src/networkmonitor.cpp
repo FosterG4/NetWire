@@ -9,14 +9,34 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QFileIconProvider>
+#include <QProcess>
+#include <QProcessEnvironment>
+#include <QtConcurrent/QtConcurrent>
 
-// Windows headers for process information
-#include <TlHelp32.h>
-#include <psapi.h>
+// Platform-specific includes
+#ifdef Q_OS_WIN
 #include <winsock2.h>
 #include <ws2tcpip.h>
-
+#include <iphlpapi.h>
+#include <psapi.h>
+#include <shellapi.h>
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "psapi.lib")
+#pragma comment(lib, "shell32.lib")
+#elif defined(Q_OS_LINUX)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#elif defined(Q_OS_MACOS)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <libproc.h>
+#endif
 
 // Structure to store IP header information
 #pragma pack(push, 1)
@@ -32,6 +52,7 @@ typedef struct ip_header {
     unsigned int   saddr;          // Source address
     unsigned int   daddr;          // Destination address
 } ip_header;
+#pragma pack(pop)
 
 // Structure to store TCP header
 #pragma pack(push, 1)
@@ -46,6 +67,7 @@ typedef struct tcp_header {
     unsigned short sum;    // Checksum
     unsigned short urp;    // Urgent pointer
 } tcp_header;
+#pragma pack(pop)
 
 // Structure to store UDP header
 #pragma pack(push, 1)
@@ -55,39 +77,60 @@ typedef struct udp_header {
     unsigned short len;    // Length
     unsigned short crc;    // Checksum
 } udp_header;
-
 #pragma pack(pop)
 
 NetworkMonitor::NetworkMonitor(QObject *parent)
     : QObject(parent)
+#ifdef HAVE_PCAP
     , m_pcapHandle(nullptr)
+#endif
     , m_isCapturing(false)
+    , m_captureWatcher(new QFutureWatcher<void>(this))
 {
-    // Initialize Windows Sockets API (WSA)
+    // Initialize network on Windows
+#ifdef Q_OS_WIN
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         qWarning() << "WSAStartup failed";
     }
+#endif
     
     // Start a timer to periodically update active connections
-    QTimer *updateTimer = new QTimer(this);
-    connect(updateTimer, &QTimer::timeout, this, &NetworkMonitor::updateActiveConnections);
-    updateTimer->start(2000); // Update every 2 seconds
+    m_updateTimer = new QTimer(this);
+    connect(m_updateTimer, &QTimer::timeout, this, &NetworkMonitor::updateActiveConnections);
+    m_updateTimer->start(2000); // Update every 2 seconds
 }
 
 NetworkMonitor::~NetworkMonitor()
 {
+    // Stop the update timer
+    if (m_updateTimer) {
+        m_updateTimer->stop();
+    }
+    
+    // Stop capture and wait for background thread to finish
     stopCapture();
+    
+    // Wait for the background thread to finish if it's running
+    if (m_captureFuture.isRunning()) {
+        m_captureFuture.waitForFinished();
+    }
+    
+#ifdef HAVE_PCAP
     if (m_pcapHandle) {
         pcap_close(m_pcapHandle);
     }
+#endif
     
     // Cleanup Windows Sockets API
+#ifdef Q_OS_WIN
     WSACleanup();
+#endif
 }
 
 bool NetworkMonitor::initialize()
 {
+#ifdef HAVE_PCAP
     char errbuf[PCAP_ERRBUF_SIZE];
     
     // Find all network devices
@@ -100,11 +143,16 @@ bool NetworkMonitor::initialize()
     // Free the device list as we just needed to check if we can access it
     pcap_freealldevs(alldevs);
     return true;
+#else
+    qWarning() << "libpcap not available - network monitoring disabled";
+    return false;
+#endif
 }
 
 QStringList NetworkMonitor::getAvailableInterfaces() const
 {
     QStringList interfaces;
+#ifdef HAVE_PCAP
     char errbuf[PCAP_ERRBUF_SIZE];
     pcap_if_t *alldevs;
     
@@ -123,6 +171,15 @@ QStringList NetworkMonitor::getAvailableInterfaces() const
     }
     
     pcap_freealldevs(alldevs);
+#else
+    // Fallback to Qt network interfaces when pcap is not available
+    QList<QNetworkInterface> qtInterfaces = QNetworkInterface::allInterfaces();
+    for (const QNetworkInterface &interface : qtInterfaces) {
+        if (interface.isValid() && !interface.addressEntries().isEmpty()) {
+            interfaces.append(interface.humanReadableName());
+        }
+    }
+#endif
     return interfaces;
 }
 
@@ -132,6 +189,7 @@ bool NetworkMonitor::startCapture(const QString &interfaceName)
         stopCapture();
     }
     
+#ifdef HAVE_PCAP
     char errbuf[PCAP_ERRBUF_SIZE];
     
     // Convert QString to char* for pcap
@@ -155,7 +213,7 @@ bool NetworkMonitor::startCapture(const QString &interfaceName)
     
     // Start capturing in a separate thread
     m_isCapturing = true;
-    QtConcurrent::run([this]() {
+    m_captureFuture = QtConcurrent::run([this]() {
         struct pcap_pkthdr header;
         const u_char *packet;
         
@@ -170,14 +228,28 @@ bool NetworkMonitor::startCapture(const QString &interfaceName)
         }
     });
     
+    // Connect the future to the watcher for monitoring
+    m_captureWatcher->setFuture(m_captureFuture);
+    
     return true;
+#else
+    qWarning() << "libpcap not available - cannot start capture";
+    return false;
+#endif
 }
 
 void NetworkMonitor::stopCapture()
 {
+#ifdef HAVE_PCAP
     m_isCapturing = false;
     if (m_pcapHandle) {
         pcap_breakloop(m_pcapHandle);
+    }
+#endif
+    
+    // Wait for the background thread to finish if it's running
+    if (m_captureFuture.isRunning()) {
+        m_captureFuture.waitForFinished();
     }
 }
 
@@ -191,6 +263,26 @@ QList<NetworkMonitor::ConnectionInfo> NetworkMonitor::getActiveConnections() con
 {
     QMutexLocker locker(&m_mutex);
     return m_activeConnections;
+}
+
+void NetworkMonitor::updateNetworkStats()
+{
+    QMutexLocker locker(&m_mutex);
+    
+    // Calculate total download and upload rates
+    quint64 totalDownload = 0;
+    quint64 totalUpload = 0;
+    
+    for (const auto &stats : m_processStats) {
+        totalDownload += stats.downloadRate;
+        totalUpload += stats.uploadRate;
+    }
+    
+    // Emit the statsUpdated signal with the aggregated data
+    emit statsUpdated(totalDownload, totalUpload);
+    
+    // Emit connection count changed signal
+    emit connectionCountChanged(m_activeConnections.size());
 }
 
 QMap<QString, NetworkMonitor::NetworkStats> NetworkMonitor::getStatsByApplication() const
@@ -219,6 +311,7 @@ QMap<QString, NetworkMonitor::NetworkStats> NetworkMonitor::getStatsByApplicatio
 
 QString NetworkMonitor::getProcessNameFromPid(qint64 pid) const
 {
+#ifdef Q_OS_WIN
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
     if (hProcess == NULL) {
         return QString();
@@ -232,10 +325,29 @@ QString NetworkMonitor::getProcessNameFromPid(qint64 pid) const
     
     CloseHandle(hProcess);
     return QString::fromWCharArray(processName);
+#elif defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+    QFileInfo info(QString("/proc/%1/comm").arg(pid));
+    if (info.exists()) {
+        QFile file(info.absoluteFilePath());
+        if (file.open(QIODevice::ReadOnly)) {
+            return QString::fromUtf8(file.readAll().trimmed());
+        }
+    }
+    return QString();
+#elif defined(Q_OS_MACOS)
+    char pathbuf[PROC_PIDPATHINFO_MAXSIZE];
+    if (proc_pidpath(pid, pathbuf, sizeof(pathbuf)) > 0) {
+        return QFileInfo(QString::fromUtf8(pathbuf)).fileName();
+    }
+    return QString();
+#else
+    return QString();
+#endif
 }
 
 QString NetworkMonitor::getProcessPathFromPid(qint64 pid) const
 {
+#ifdef Q_OS_WIN
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
     if (hProcess == NULL) {
         return QString();
@@ -249,6 +361,21 @@ QString NetworkMonitor::getProcessPathFromPid(qint64 pid) const
     
     CloseHandle(hProcess);
     return QString::fromWCharArray(processPath);
+#elif defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+    QFileInfo exeInfo(QString("/proc/%1/exe").arg(pid));
+    if (exeInfo.exists()) {
+        return exeInfo.canonicalFilePath();
+    }
+    return QString();
+#elif defined(Q_OS_MACOS)
+    char pathbuf[PROC_PIDPATHINFO_MAXSIZE];
+    if (proc_pidpath(pid, pathbuf, sizeof(pathbuf)) > 0) {
+        return QString::fromUtf8(pathbuf);
+    }
+    return QString();
+#else
+    return QString();
+#endif
 }
 
 QIcon NetworkMonitor::getProcessIcon(const QString &processPath) const
@@ -257,7 +384,13 @@ QIcon NetworkMonitor::getProcessIcon(const QString &processPath) const
         return QIcon();
     }
     
-    // Get the icon from the executable
+    QFileInfo fileInfo(processPath);
+    if (!fileInfo.exists()) {
+        return QIcon();
+    }
+    
+#ifdef Q_OS_WIN
+    // Windows-specific icon extraction
     SHFILEINFOW shfi = {0};
     if (SHGetFileInfoW(
         (LPCWSTR)processPath.utf16(),
@@ -266,19 +399,25 @@ QIcon NetworkMonitor::getProcessIcon(const QString &processPath) const
         sizeof(shfi),
         SHGFI_ICON | SHGFI_SMALLICON)) {
         
-        QPixmap pixmap = QtWin::fromHICON(shfi.hIcon);
+        QPixmap pixmap = QPixmap::fromImage(QImage::fromHICON(shfi.hIcon));
         DestroyIcon(shfi.hIcon);
         return QIcon(pixmap);
     }
-    
     return QIcon();
+#else
+    // On Unix-like systems, use QFileIconProvider which provides a cross-platform way to get file icons
+    static QFileIconProvider iconProvider;
+    return iconProvider.icon(fileInfo);
+#endif
 }
 
 void NetworkMonitor::updateActiveConnections()
 {
     QMutexLocker locker(&m_mutex);
     m_activeConnections.clear();
-    
+
+#ifdef Q_OS_WIN
+    // Windows implementation using IP Helper API
     // Get TCP connections
     PMIB_TCPTABLE_OWNER_PID pTcpTable = NULL;
     DWORD dwSize = 0;
@@ -289,9 +428,15 @@ void NetworkMonitor::updateActiveConnections()
             if (GetExtendedTcpTable(pTcpTable, &dwSize, TRUE, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) == NO_ERROR) {
                 for (DWORD i = 0; i < pTcpTable->dwNumEntries; i++) {
                     ConnectionInfo info;
-                    info.localAddress = QString::fromStdString(inet_ntoa(*(in_addr*)&pTcpTable->table[i].dwLocalAddr));
+                    char addrStr[INET_ADDRSTRLEN];
+                    if (inet_ntop(AF_INET, &pTcpTable->table[i].dwLocalAddr, addrStr, INET_ADDRSTRLEN)) {
+                        info.localAddress = QString::fromStdString(addrStr);
+                    }
                     info.localPort = ntohs((u_short)pTcpTable->table[i].dwLocalPort);
-                    info.remoteAddress = QString::fromStdString(inet_ntoa(*(in_addr*)&pTcpTable->table[i].dwRemoteAddr));
+                    char remoteAddrStr[INET_ADDRSTRLEN];
+                    if (inet_ntop(AF_INET, &pTcpTable->table[i].dwRemoteAddr, remoteAddrStr, INET_ADDRSTRLEN)) {
+                        info.remoteAddress = QString::fromStdString(remoteAddrStr);
+                    }
                     info.remotePort = ntohs((u_short)pTcpTable->table[i].dwRemotePort);
                     info.protocol = 6; // TCP
                     info.processId = pTcpTable->table[i].dwOwningPid;
@@ -304,7 +449,7 @@ void NetworkMonitor::updateActiveConnections()
         }
     }
     
-    // Get UDP connections (similar to TCP)
+    // Get UDP connections
     PMIB_UDP6TABLE_OWNER_PID pUdpTable = NULL;
     dwSize = 0;
     
@@ -314,7 +459,11 @@ void NetworkMonitor::updateActiveConnections()
             if (GetExtendedUdpTable(pUdpTable, &dwSize, TRUE, AF_INET, UDP_TABLE_OWNER_PID, 0) == NO_ERROR) {
                 for (DWORD i = 0; i < pUdpTable->dwNumEntries; i++) {
                     ConnectionInfo info;
-                    info.localAddress = QString::fromStdString(inet_ntoa(*(in_addr*)&pUdpTable->table[i].dwLocalAddr));
+                    // UDP IPv6 table uses ucLocalAddr instead of dwLocalAddr
+                    char addrStr[INET6_ADDRSTRLEN];
+                    if (inet_ntop(AF_INET6, pUdpTable->table[i].ucLocalAddr, addrStr, INET6_ADDRSTRLEN)) {
+                        info.localAddress = QString::fromStdString(addrStr);
+                    }
                     info.localPort = ntohs((u_short)pUdpTable->table[i].dwLocalPort);
                     info.remoteAddress = "*";
                     info.remotePort = 0;
@@ -328,6 +477,142 @@ void NetworkMonitor::updateActiveConnections()
             free(pUdpTable);
         }
     }
+#elif defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
+    // Linux implementation using /proc/net/tcp and /proc/net/udp
+    QFile tcpFile("/proc/net/tcp");
+    if (tcpFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&tcpFile);
+        in.readLine(); // Skip header line
+        while (!in.atEnd()) {
+            QString line = in.readLine().trimmed();
+            QStringList parts = line.split(' ', Qt::SkipEmptyParts);
+            if (parts.size() >= 10) {
+                ConnectionInfo info;
+                
+                // Parse local and remote addresses
+                QStringList local = parts[1].split(':');
+                QStringList remote = parts[2].split(':');
+                
+                if (local.size() == 2 && remote.size() == 2) {
+                    bool ok;
+                    info.localAddress = QHostAddress(local[0].toUInt(&ok, 16)).toString();
+                    info.localPort = local[1].toUShort(&ok, 16);
+                    info.remoteAddress = QHostAddress(remote[0].toUInt(&ok, 16)).toString();
+                    info.remotePort = remote[1].toUShort(&ok, 16);
+                    info.protocol = 6; // TCP
+                    
+                    // On Linux, getting the process ID requires additional steps (e.g., using lsof or ss)
+                    // This is a simplified example
+                    info.processId = -1;
+                    info.processName = "";
+                    
+                    m_activeConnections.append(info);
+                }
+            }
+        }
+        tcpFile.close();
+    }
+    
+    // Similar implementation for UDP
+    QFile udpFile("/proc/net/udp");
+    if (udpFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&udpFile);
+        in.readLine(); // Skip header line
+        while (!in.atEnd()) {
+            QString line = in.readLine().trimmed();
+            QStringList parts = line.split(' ', Qt::SkipEmptyParts);
+            if (parts.size() >= 10) {
+                ConnectionInfo info;
+                
+                // Parse local address
+                QStringList local = parts[1].split(':');
+                
+                if (local.size() == 2) {
+                    bool ok;
+                    info.localAddress = QHostAddress(local[0].toUInt(&ok, 16)).toString();
+                    info.localPort = local[1].toUShort(&ok, 16);
+                    info.remoteAddress = "*";
+                    info.remotePort = 0;
+                    info.protocol = 17; // UDP
+                    
+                    // On Linux, getting the process ID requires additional steps
+                    info.processId = -1;
+                    info.processName = "";
+                    
+                    m_activeConnections.append(info);
+                }
+            }
+        }
+        udpFile.close();
+    }
+#elif defined(Q_OS_MACOS)
+    // macOS implementation using netstat
+    QProcess netstatProcess;
+    netstatProcess.start("netstat", QStringList() << "-n" << "-p" << "tcp");
+    if (netstatProcess.waitForFinished()) {
+        QByteArray output = netstatProcess.readAllStandardOutput();
+        QTextStream stream(output);
+        while (!stream.atEnd()) {
+            QString line = stream.readLine().trimmed();
+            if (line.startsWith("tcp")) {
+                QStringList parts = line.split(' ', Qt::SkipEmptyParts);
+                if (parts.size() >= 5) {
+                    ConnectionInfo info;
+                    
+                    // Parse local and remote addresses
+                    QStringList local = parts[3].split('.');
+                    QStringList remote = parts[4].split('.');
+                    
+                    if (local.size() >= 2 && remote.size() >= 2) {
+                        info.localAddress = local[0];
+                        info.localPort = local[1].toUShort();
+                        info.remoteAddress = remote[0];
+                        info.remotePort = remote[1].toUShort();
+                        info.protocol = 6; // TCP
+                        info.processId = -1;
+                        info.processName = "";
+                        
+                        m_activeConnections.append(info);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Similar for UDP
+    netstatProcess.start("netstat", QStringList() << "-n" << "-p" << "udp");
+    if (netstatProcess.waitForFinished()) {
+        QByteArray output = netstatProcess.readAllStandardOutput();
+        QTextStream stream(output);
+        while (!stream.atEnd()) {
+            QString line = stream.readLine().trimmed();
+            if (line.startsWith("udp")) {
+                QStringList parts = line.split(' ', Qt::SkipEmptyParts);
+                if (parts.size() >= 4) {
+                    ConnectionInfo info;
+                    
+                    // Parse local address
+                    QStringList local = parts[3].split('.');
+                    
+                    if (local.size() >= 2) {
+                        info.localAddress = local[0];
+                        info.localPort = local[1].toUShort();
+                        info.remoteAddress = "*";
+                        info.remotePort = 0;
+                        info.protocol = 17; // UDP
+                        info.processId = -1;
+                        info.processName = "";
+                        
+                        m_activeConnections.append(info);
+                    }
+                }
+            }
+        }
+    }
+#else
+    // Fallback implementation for other platforms
+    qWarning() << "Network connection monitoring not implemented for this platform";
+#endif
 }
 
 NetworkMonitor::ConnectionInfo NetworkMonitor::getConnectionInfo(const QString &localAddr, quint16 localPort, 
@@ -348,6 +633,7 @@ NetworkMonitor::ConnectionInfo NetworkMonitor::getConnectionInfo(const QString &
     return ConnectionInfo();
 }
 
+#ifdef HAVE_PCAP
 void NetworkMonitor::processPacket(const struct pcap_pkthdr *pkthdr, const u_char *packet)
 {
     QMutexLocker locker(&m_mutex);
@@ -413,4 +699,33 @@ void NetworkMonitor::processPacket(const struct pcap_pkthdr *pkthdr, const u_cha
         emit networkDataUpdated();
         lastUpdate = QDateTime::currentDateTime();
     }
+}
+#endif
+
+QString NetworkMonitor::getApplicationPath(const QString &appName) const
+{
+    QMutexLocker locker(&m_mutex);
+    
+    // Search through process stats to find the application
+    for (const auto &stats : m_processStats) {
+        if (stats.processName == appName) {
+            return getProcessPathFromPid(stats.processId);
+        }
+    }
+    
+    return QString();
+}
+
+NetworkMonitor::NetworkStats NetworkMonitor::getApplicationStats(const QString &appName) const
+{
+    QMutexLocker locker(&m_mutex);
+    
+    // Search through process stats to find the application
+    for (const auto &stats : m_processStats) {
+        if (stats.processName == appName) {
+            return stats;
+        }
+    }
+    
+    return NetworkStats();
 }

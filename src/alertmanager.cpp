@@ -18,9 +18,10 @@ AlertManager::AlertManager(QObject *parent)
     : QObject(parent)
     , m_nextAlertId(1)
     , m_isMonitoring(false)
+    , m_monitorTimer(new QTimer(this))
     , m_lastTotalUpload(0)
+    , m_lastAlertTime(QDateTime())
 {
-    m_monitorTimer = new QTimer(this);
     connect(m_monitorTimer, &QTimer::timeout, this, &AlertManager::checkConnectionSpikes);
     
     // Initialize with default values
@@ -82,7 +83,7 @@ void AlertManager::loadConfiguration()
     settings.endGroup();
     
     // Load known applications
-    m_knownApplications = settings.value("KnownApplications").toStringList().toSet();
+    m_knownApplications = QSet<QString>(settings.value("KnownApplications").toStringList().begin(), settings.value("KnownApplications").toStringList().end());
 }
 
 void AlertManager::saveConfiguration()
@@ -99,15 +100,19 @@ void AlertManager::saveConfiguration()
     
     // Save enabled alert types
     settings.beginGroup("EnabledAlerts");
-    for (int i = 0; i <= CustomAlert; ++i) {
-        AlertType type = static_cast<AlertType>(i);
+    for (int i = 0; i <= static_cast<int>(AlertManager::CustomAlert); ++i) {
+        AlertManager::AlertType type = static_cast<AlertManager::AlertType>(i);
         QString key = QString("AlertType_%1").arg(i);
         settings.setValue(key, m_enabledAlertTypes.contains(type));
     }
     settings.endGroup();
     
     // Save known applications
-    settings.setValue("KnownApplications", QStringList(m_knownApplications.toList()));
+    QStringList knownAppsList;
+    for (const QString &app : m_knownApplications) {
+        knownAppsList.append(app);
+    }
+    settings.setValue("KnownApplications", knownAppsList);
 }
 
 void AlertManager::startMonitoring()
@@ -133,7 +138,7 @@ void AlertManager::checkNetworkActivity(const NetworkMonitor::NetworkStats &stat
     if (!m_isMonitoring) return;
     
     // Check for new applications
-    checkNewApplications(stats);
+    // This will be handled separately when we get application stats from NetworkMonitor
     
     // Check bandwidth usage
     checkBandwidthUsage(stats.downloadRate, stats.uploadRate);
@@ -171,11 +176,11 @@ void AlertManager::processTrafficData(quint64 download, quint64 upload)
     checkBandwidthUsage(download, upload);
 }
 
-void AlertManager::checkNewApplications(const NetworkMonitor::NetworkStats &stats)
+void AlertManager::checkNewApplications(const QMap<QString, NetworkMonitor::NetworkStats> &appStats)
 {
     if (!m_enabledAlertTypes.contains(NewAppDetected)) return;
     
-    for (auto it = stats.appStats.constBegin(); it != stats.appStats.constEnd(); ++it) {
+    for (auto it = appStats.constBegin(); it != appStats.constEnd(); ++it) {
         const QString &appName = it.key();
         if (!m_knownApplications.contains(appName)) {
             // New application detected
@@ -189,12 +194,9 @@ void AlertManager::checkNewApplications(const NetworkMonitor::NetworkStats &stat
                 tr("A new application has been detected on the network: %1").arg(appName),
                 appName,
                 "",
-                it.value().totalBytes
+                0,
+                ""
             );
-            
-            // Save updated known applications
-            QSettings settings("NetWire", "NetWire");
-            settings.setValue("KnownApplications", QStringList(m_knownApplications.toList()));
         }
     }
 }
@@ -244,9 +246,9 @@ void AlertManager::checkSuspiciousConnections(const NetworkMonitor::ConnectionIn
     }
     
     // Check for suspicious IP addresses
-    if (isSuspiciousIP(conn.remoteAddress.toString())) {
+    if (isSuspiciousIP(conn.remoteAddress)) {
         isSuspicious = true;
-        reason = tr("Connecting to known suspicious IP address %1").arg(conn.remoteAddress.toString());
+        reason = tr("Connecting to known suspicious IP address %1").arg(conn.remoteAddress);
     }
     
     // Check for unusual protocols
@@ -261,8 +263,8 @@ void AlertManager::checkSuspiciousConnections(const NetworkMonitor::ConnectionIn
             High,
             tr("Suspicious Connection Detected"),
             reason,
-            conn.localAddress.toString(),
-            conn.remoteAddress.toString(),
+            conn.localAddress,
+            conn.remoteAddress,
             0,
             QString("Process: %1, Protocol: %2").arg(conn.processName).arg(conn.protocol)
         );
@@ -323,13 +325,7 @@ void AlertManager::generateAlert(AlertType type, Severity severity, const QStrin
                                const QString &destination, qint64 bytes,
                                const QString &additionalInfo)
 {
-    // Rate limiting - don't show the same alert type within 5 minutes
-    if (m_lastAlertTime.isValid() && 
-        m_lastAlertTime.secsTo(QDateTime::currentDateTime()) < 300) {
-        return;
-    }
-    
-    Alert alert;
+    AlertManager::Alert alert;
     alert.type = type;
     alert.severity = severity;
     alert.title = title;
@@ -378,7 +374,9 @@ void AlertManager::acknowledgeAlert(int alertId)
 
 void AlertManager::clearAlert(int alertId)
 {
-    if (m_activeAlerts.remove(alertId) > 0) {
+    // Remove the alert and check if it existed
+    int removedCount = m_activeAlerts.remove(alertId);
+    if (removedCount > 0) {
         emit alertCleared(alertId);
     }
 }
@@ -471,25 +469,53 @@ bool AlertManager::isSuspiciousIP(const QString &ip) const
     // 2. Look for IPs in suspicious ranges
     // 3. Check for connections to TOR exit nodes
     
-    // For now, just check for private IP ranges
     QHostAddress addr(ip);
     if (addr.isNull()) return false;
-    
-    // Check if it's a private IP (less likely to be suspicious)
-    if (addr.isInSubnet(QHostAddress("10.0.0.0"), 8) ||
-        addr.isInSubnet(QHostAddress("172.16.0.0"), 12) ||
-        addr.isInSubnet(QHostAddress("192.168.0.0"), 16)) {
-        return false;
-    }
     
     // Check for localhost
     if (addr == QHostAddress::LocalHost || addr == QHostAddress::LocalHostIPv6) {
         return false;
     }
     
-    // Add more sophisticated checks here
+    // For now, we'll skip the subnet checks to avoid compatibility issues
+    // In a production environment, you would want to implement proper IP range checking
+    // or use a third-party library for this purpose
     
     return false;
+}
+
+bool AlertManager::isIPInRange(const QString &ip, const QString &range) const
+{
+    // Split the range into IP and prefix length
+    QStringList parts = range.split('/');
+    if (parts.size() != 2) {
+        return false; // Invalid format
+    }
+
+    QString rangeIp = parts[0];
+    bool ok;
+    int prefix = parts[1].toInt(&ok);
+    if (!ok || prefix < 0 || prefix > 32) {
+        return false; // Invalid prefix length
+    }
+
+    // Convert IPs to quint32 for comparison
+    QHostAddress ipAddr(ip);
+    QHostAddress rangeAddr(rangeIp);
+    
+    if (ipAddr.isNull() || rangeAddr.isNull() || ipAddr.protocol() != QAbstractSocket::IPv4Protocol || 
+        rangeAddr.protocol() != QAbstractSocket::IPv4Protocol) {
+        return false; // Invalid IP or not IPv4
+    }
+
+    quint32 ipBits = ipAddr.toIPv4Address();
+    quint32 rangeBits = rangeAddr.toIPv4Address();
+    
+    // Create a bitmask for the prefix
+    quint32 mask = prefix == 0 ? 0 : ~((1 << (32 - prefix)) - 1);
+    
+    // Compare the network portions
+    return (ipBits & mask) == (rangeBits & mask);
 }
 
 QString AlertManager::formatBytes(qint64 bytes) const

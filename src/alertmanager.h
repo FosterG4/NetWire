@@ -6,6 +6,7 @@
 #include <QTimer>
 #include <QSet>
 #include <QDateTime>
+#include <QHostAddress>
 #include "networkmonitor.h"
 
 class AlertManager : public QObject
@@ -100,7 +101,7 @@ private:
                       const QString &additionalInfo = QString());
     
     // Detection methods
-    void checkNewApplications(const NetworkMonitor::NetworkStats &stats);
+    void checkNewApplications(const QMap<QString, NetworkMonitor::NetworkStats> &appStats);
     void checkBandwidthUsage(quint64 download, quint64 upload);
     void checkSuspiciousConnections(const NetworkMonitor::ConnectionInfo &conn);
     void checkConnectionSpikes();
@@ -111,6 +112,12 @@ private:
     QString severityToString(Severity severity) const;
     bool isSuspiciousPort(quint16 port) const;
     bool isSuspiciousIP(const QString &ip) const;
+    bool isIPInRange(const QString &ip, const QString &range) const;
+    QString formatBytes(qint64 bytes) const;
+    
+    // Configuration persistence
+    void loadConfiguration();
+    void saveConfiguration();
     
     // Alert storage
     QHash<int, Alert> m_activeAlerts;

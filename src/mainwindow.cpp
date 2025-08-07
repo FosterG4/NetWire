@@ -1,5 +1,15 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "globallogger.h"
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QSettings>
+#include <QFileDialog>
+#include <QStandardPaths>
+#include <QTextStream>
+#include <QMessageBox>
+#include <QApplication>
 #include "alertmanager.h"
 #include "alertsettingsdialog.h"
 #include <QMessageBox>
@@ -21,6 +31,7 @@
 #include <QStatusBar>
 #include <QInputDialog>
 #include <QCloseEvent>
+#include <QIcon>
 
 // ApplicationTableModel implementation
 ApplicationTableModel::ApplicationTableModel(QObject *parent)
@@ -119,7 +130,7 @@ void ApplicationTableModel::updateData(const QMap<QString, NetworkMonitor::Netwo
         
         AppData appData;
         appData.name = appName;
-        appData.icon = stat.processIcon.isNull() ? QIcon(":/icons/application.ico") : stat.processIcon;
+        appData.icon = stat.processIcon.isNull() ? QIcon(":/resources/icons/application.ico") : stat.processIcon;
         appData.download = stat.bytesReceived;
         appData.upload = stat.bytesSent;
         appData.downloadSpeed = formatSpeed(downloadSpeed);
@@ -189,31 +200,36 @@ MainWindow::MainWindow(QWidget *parent)
     , m_alertsDialog(new AlertsDialog(this))
     , m_isMonitoring(false)
 {
+    LOG_FUNCTION_ENTRY();
+    
     ui->setupUi(this);
     
-    // Initialize models
-    m_appsModel = new ApplicationTableModel(this);
+    LOG_DEBUG("Setting window properties");
+    setWindowTitle(tr("NetWire - Basic Test"));
+    resize(1024, 768);
     
-    // Initialize UI components
+    LOG_DEBUG("About to call setupUI()");
     setupUI();
+    
+    LOG_DEBUG("About to call setupConnections()");
     setupConnections();
-    setupSystemTray();
-    
-    // Set initial theme
-    loadTheme();
-    
-    // Update interface list
-    updateInterfaceList();
-    
-    // Start with monitoring disabled
-    setMonitoring(false);
-    
-    // Initialize firewall dialog (will be created on demand)
-    m_firewallDialog = new FirewallRulesDialog(this);
 }
 
 MainWindow::~MainWindow()
 {
+    // Stop monitoring if active
+    if (m_isMonitoring) {
+        setMonitoring(false);
+        if (m_networkMonitor) {
+            m_networkMonitor->stopCapture();
+        }
+    }
+    
+    // Stop AlertManager monitoring
+    if (m_alertManager) {
+        m_alertManager->stopMonitoring();
+    }
+    
     // Save window state and geometry
     QSettings settings("NetWire", "NetWire");
     settings.setValue("geometry", saveGeometry());
@@ -224,24 +240,21 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUI()
 {
-    // Initialize alerts dialog
+    LOG_FUNCTION_ENTRY();
+    
     m_alertsDialog->setAlertManager(m_alertManager);
     
-    // Set window properties
     setWindowTitle(tr("NetWire - Network Monitor"));
     resize(1024, 768);
     
-    // Create main layout
     QVBoxLayout *mainLayout = new QVBoxLayout();
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
     
-    // Set the central widget
     QWidget *centralWidget = new QWidget(this);
     centralWidget->setLayout(mainLayout);
     setCentralWidget(centralWidget);
     
-    // Create and setup the toolbar
     setupToolbar();
     
     // Create the main tab widget
@@ -285,6 +298,17 @@ void MainWindow::setupUI()
     heatmapToolbar->addWidget(rangeCombo);
     heatmapToolbar->addSeparator();
     
+    // Create network heatmap first
+    m_networkHeatmap = new NetworkHeatmap(this);
+    m_networkHeatmap->setXAxisLabel(tr("Day of Week"));
+    m_networkHeatmap->setYAxisLabel(tr("Time of Day"));
+    m_networkHeatmap->setLegendVisible(true);
+    
+    // Set initial time range (last 7 days)
+    QDateTime now = QDateTime::currentDateTime();
+    QDateTime startTime = now.addDays(-6);
+    m_networkHeatmap->setTimeRange(startTime, now);
+    
     // Add data visibility toggles
     QCheckBox *showDownloadCheck = new QCheckBox(tr("Show Download"), this);
     showDownloadCheck->setChecked(true);
@@ -307,7 +331,7 @@ void MainWindow::setupUI()
     // Add export button
     QToolButton *exportButton = new QToolButton(this);
     exportButton->setText(tr("Export"));
-    exportButton->setIcon(QIcon(":/icons/save.png"));
+    exportButton->setIcon(QIcon(":/resources/icons/png/save.png"));
     exportButton->setToolTip(tr("Export heatmap data"));
     exportButton->setPopupMode(QToolButton::MenuButtonPopup);
     
@@ -316,6 +340,7 @@ void MainWindow::setupUI()
     QAction *exportPngAction = exportMenu->addAction(tr("Export to PNG..."));
     exportButton->setMenu(exportMenu);
     
+    // Export connections
     connect(exportCsvAction, &QAction::triggered, this, [this]() {
         QString fileName = QFileDialog::getSaveFileName(this,
             tr("Export Heatmap Data"),
@@ -360,21 +385,9 @@ void MainWindow::setupUI()
     
     heatmapToolbar->addWidget(exportButton);
     
-    // Create network heatmap
-    m_networkHeatmap = new NetworkHeatmap(this);
-    m_networkHeatmap->setXAxisLabel(tr("Day of Week"));
-    m_networkHeatmap->setYAxisLabel(tr("Time of Day"));
-    m_networkHeatmap->setLegendVisible(true);
-    
-    // Set initial time range (last 7 days)
-    QDateTime now = QDateTime::currentDateTime();
-    QDateTime startTime = now.addDays(-6);
-    m_networkHeatmap->setTimeRange(startTime, now);
-    
     // Add widgets to layout
     heatmapLayout->addWidget(heatmapToolbar);
-    heatmapLayout->addWidget(m_networkHeatmap, 1); // Stretch factor 1 for the heatmap
-    
+    heatmapLayout->addWidget(m_networkHeatmap, 1);
     tabWidget->addTab(heatmapTab, tr("Network Activity"));
     
     // Create applications tab
@@ -383,7 +396,7 @@ void MainWindow::setupUI()
     
     // Create applications table
     m_appsTable = new QTableView(this);
-    m_appsTable->setModel(m_appsModel);
+    m_appsTable->setModel(m_appModel);
     m_appsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_appsTable->setSelectionMode(QAbstractItemView::SingleSelection);
     m_appsTable->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -400,13 +413,14 @@ void MainWindow::setupUI()
     tabWidget->addTab(appsTab, tr("Applications"));
     
     // Create connections tab
-    QWidget *connectionsTab = new QWidget(this);
+    QWidget *connectionsTab = new QWidget();
     QVBoxLayout *connectionsLayout = new QVBoxLayout(connectionsTab);
     
     // Create connections table
     m_connectionsTable = new QTableWidget(0, 5, this);
-    QStringList headers = {tr("Protocol"), tr("Local Address"), tr("Remote Address"), 
-                          tr("Status"), tr("Process")};
+    
+    QStringList headers;
+    headers << tr("Protocol") << tr("Local Address") << tr("Remote Address") << tr("Status") << tr("Process");
     m_connectionsTable->setHorizontalHeaderLabels(headers);
     m_connectionsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_connectionsTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -422,16 +436,12 @@ void MainWindow::setupUI()
     m_statusLabel = new QLabel(tr("Ready"), this);
     statusBar()->addPermanentWidget(m_statusLabel, 1);
     
-    // Setup system tray
     setupSystemTray();
     
-    // Setup menu bar
     setupMenuBar();
     
-    // Setup signal-slot connections
     setupConnections();
     
-    // Setup theme
     loadTheme();
     
     // Update interface list
@@ -441,8 +451,27 @@ void MainWindow::setupUI()
 // This function sets up all signal-slot connections for the MainWindow class
 void MainWindow::setupConnections()
 {
-    // Connect network monitor signals to dashboard and heatmap
+    LOG_FUNCTION_ENTRY();
+    
+    // 1. Connect toolbar actions
+    connect(m_startStopAction, &QAction::triggered, this, &MainWindow::onStartStopClicked);
+    connect(m_refreshAction, &QAction::triggered, this, &MainWindow::updateInterfaceList);
+    
+    // 2. Connect interface selection
+    if (m_interfaceCombo) {
+        connect(m_interfaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, &MainWindow::onInterfaceSelected);
+    }
+    
+    // 3. Connect context menu signals
+    if (m_appsTable) {
+        connect(m_appsTable, &QTableView::customContextMenuRequested,
+                this, &MainWindow::showContextMenu);
+    }
+    
+    // 4. Connect network monitor signals
     if (m_networkMonitor) {
+        // Connect to dashboard widgets
         if (m_dashboardWidget) {
             connect(m_networkMonitor, &NetworkMonitor::statsUpdated, 
                     m_dashboardWidget, &DashboardWidget::updateBandwidthData);
@@ -452,81 +481,66 @@ void MainWindow::setupConnections()
                     m_dashboardWidget, &DashboardWidget::updateSystemResources);
         }
         
-        // Connect network monitor to update heatmap
-        connect(m_networkMonitor, &NetworkMonitor::statsUpdated, this, [this](const QMap<QString, NetworkMonitor::NetworkStats> &stats) {
-            static QDateTime lastUpdate = QDateTime::currentDateTime();
-            QDateTime now = QDateTime::currentDateTime();
-            
-            // Only update heatmap every 5 minutes to avoid too much data
-            if (lastUpdate.secsTo(now) >= 300) {
-                lastUpdate = now;
+        // Connect to main window stats update
+        connect(m_networkMonitor, &NetworkMonitor::statsUpdated,
+                this, &MainWindow::updateNetworkStats);
+        
+        // Connect to update heatmap (throttled to every 5 minutes)
+        connect(m_networkMonitor, &NetworkMonitor::statsUpdated, this, 
+            [this](quint64 download, quint64 upload) {
+                static QDateTime lastUpdate = QDateTime::currentDateTime();
+                QDateTime now = QDateTime::currentDateTime();
                 
-                // Calculate total upload/download for this time period
-                quint64 totalDownload = 0;
-                quint64 totalUpload = 0;
-                
-                for (const auto &stat : stats) {
-                    totalDownload += stat.downloadTotal;
-                    totalUpload += stat.uploadTotal;
-                }
-                
-                // Add data point to heatmap
-                m_networkHeatmap->addDataPoint(now, totalDownload, false);
-                m_networkHeatmap->addDataPoint(now, totalUpload, true);
-            }
-        });
+                if (lastUpdate.secsTo(now) >= 300) {  // 5 minutes
+                    lastUpdate = now;
+                        
+                        // Add data point to heatmap if available
+                        if (m_networkHeatmap) {
+                            m_networkHeatmap->addDataPoint(now, download, false);
+                            m_networkHeatmap->addDataPoint(now, upload, true);
+                        }
+                    }
+                });
+        }
+    
+    // 5. Connect alert manager signals
+    if (m_alertManager) {
+        connect(m_alertManager, &AlertManager::newAlert,
+                this, &MainWindow::onAlertReceived);
     }
     
-    // Connect toolbar actions
-    if (m_startStopAction) {
-        connect(m_startStopAction, &QAction::triggered, this, &MainWindow::onStartStopClicked);
-    }
-    
-    // Connect interface selection
-    if (m_interfaceCombo) {
-        connect(m_interfaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                this, &MainWindow::onInterfaceSelected);
-    }
-    
-    // Connect context menu signals
-    if (m_appsTable) {
-        connect(m_appsTable, &QTableView::customContextMenuRequested,
-                this, &MainWindow::showContextMenu);
-    }
-    
-    if (m_connectionsTable) {
-        connect(m_connectionsTable, &QTableWidget::customContextMenuRequested,
-                this, &MainWindow::showContextMenu);
-    }
-    
-    // Connect theme actions if they exist
+    // 6. Connect theme actions
     if (m_systemThemeAction) {
-        connect(m_systemThemeAction, &QAction::triggered, this, [this]() { 
-            switchTheme(true, Theme::System); 
-        });
+        connect(m_systemThemeAction, &QAction::triggered, 
+                this, [this]() { switchTheme(true, Theme::System); });
     }
     
     if (m_lightThemeAction) {
-        connect(m_lightThemeAction, &QAction::triggered, this, [this]() { 
-            switchTheme(true, Theme::Light); 
-        });
+        connect(m_lightThemeAction, &QAction::triggered, 
+                this, [this]() { switchTheme(true, Theme::Light); });
     }
     
     if (m_darkThemeAction) {
-        connect(m_darkThemeAction, &QAction::triggered, this, [this]() { 
-            switchTheme(true, Theme::Dark); 
-        });
+        connect(m_darkThemeAction, &QAction::triggered, 
+                this, [this]() { switchTheme(true, Theme::Dark); });
     }
     
-    // Connect system tray signals if enabled
+    // 7. Connect system tray signals
     if (m_trayIcon) {
         connect(m_trayIcon, &QSystemTrayIcon::activated,
                 this, &MainWindow::trayIconActivated);
+    }
+    
+    // 8. Connect connections table context menu
+    if (m_connectionsTable) {
+        connect(m_connectionsTable, &QTableWidget::customContextMenuRequested,
+                this, &MainWindow::showContextMenu);
     }
 }
 
 void MainWindow::setupToolbar()
 {
+    LOG_FUNCTION_ENTRY();
     // Create toolbar
     QToolBar *toolbar = addToolBar(tr("Main Toolbar"));
     toolbar->setMovable(false);
@@ -545,16 +559,31 @@ void MainWindow::setupToolbar()
     toolbar->addSeparator();
     
     // Refresh button
-    m_refreshAction = new QAction(QIcon(":/png/refresh.png"), tr("Refresh"), this);
+    m_refreshAction = new QAction(tr("Refresh"), this);
+    if (QFile::exists(":/resources/icons/png/refresh.png")) {
+        m_refreshAction->setIcon(QIcon(":/resources/icons/png/refresh.png"));
+    } else if (QFile::exists(":/png/refresh.png")) {
+        m_refreshAction->setIcon(QIcon(":/png/refresh.png"));
+    }
     toolbar->addAction(m_refreshAction);
     
     // Firewall button
-    QAction *firewallAction = new QAction(QIcon(":/png/firewall.png"), tr("Firewall"), this);
+    QAction *firewallAction = new QAction(tr("Firewall"), this);
+    if (QFile::exists(":/resources/icons/png/connections.png")) {
+        firewallAction->setIcon(QIcon(":/resources/icons/png/connections.png"));
+    } else if (QFile::exists(":/png/connections.png")) {
+        firewallAction->setIcon(QIcon(":/png/connections.png"));
+    }
     connect(firewallAction, &QAction::triggered, this, &MainWindow::showFirewallRules);
     toolbar->addAction(firewallAction);
     
     // Alerts button
-    QAction *alertsAction = new QAction(QIcon(":/png/alert.png"), tr("Alerts"), this);
+    QAction *alertsAction = new QAction(tr("Alerts"), this);
+    if (QFile::exists(":/resources/icons/png/theme.png")) {
+        alertsAction->setIcon(QIcon(":/resources/icons/png/theme.png"));
+    } else if (QFile::exists(":/png/theme.png")) {
+        alertsAction->setIcon(QIcon(":/png/theme.png"));
+    }
     connect(alertsAction, &QAction::triggered, this, &MainWindow::showAlerts);
     toolbar->addAction(alertsAction);
     
@@ -570,54 +599,12 @@ void MainWindow::setupToolbar()
 #endif
 }
 
-void MainWindow::setupConnections()
-{
-    // Connect toolbar actions
-    connect(m_startStopAction, &QAction::triggered, this, &MainWindow::onStartStopClicked);
-    connect(m_refreshAction, &QAction::triggered, this, &MainWindow::updateInterfaceList);
-    
-    // Connect interface selection
-    connect(m_interfaceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &MainWindow::onInterfaceSelected);
-    
-    // Connect context menu signals
-    connect(m_appsTable, &QTableView::customContextMenuRequested,
-            this, &MainWindow::showContextMenu);
-    
-    // Connect network monitor signals
-    if (m_networkMonitor) {
-        connect(m_networkMonitor, &NetworkMonitor::statsUpdated,
-                this, &MainWindow::updateNetworkStats);
-        connect(m_networkMonitor, &NetworkMonitor::alertTriggered,
-                m_alertManager, &AlertManager::addAlert);
-    }
-    
-    // Connect alert manager signals
-    if (m_alertManager) {
-        connect(m_alertManager, &AlertManager::alertAdded,
-                this, &MainWindow::onAlertReceived);
-    }
-    
-    // Connect theme actions
-    connect(m_systemThemeAction, &QAction::triggered, 
-            this, [this]() { switchTheme(true, Theme::System); });
-    connect(m_lightThemeAction, &QAction::triggered, 
-            this, [this]() { switchTheme(true, Theme::Light); });
-    connect(m_darkThemeAction, &QAction::triggered, 
-            this, [this]() { switchTheme(true, Theme::Dark); });
-    
-    // Connect system tray signals
-    if (m_trayIcon) {
-        connect(m_trayIcon, &QSystemTrayIcon::activated,
-                this, &MainWindow::trayIconActivated);
-    }
-}
-
 void MainWindow::setupSystemTray()
 {
+    LOG_FUNCTION_ENTRY();
     // Create system tray icon
     m_trayIcon = new QSystemTrayIcon(this);
-    m_trayIcon->setIcon(QIcon(":/icons/app.ico"));
+    m_trayIcon->setIcon(QIcon(":/resources/icons/app.ico"));
     m_trayIcon->setToolTip(tr("NetWire - Network Monitor"));
     
     // Create tray menu
@@ -655,37 +642,6 @@ void MainWindow::setupSystemTray()
     
     // Show tray icon
     m_trayIcon->show();
-}
-    
-    // Theme menu button
-    QToolButton *themeButton = new QToolButton(this);
-    themeButton->setIcon(QIcon(":/png/theme.png"));
-    themeButton->setText(tr("Theme"));
-    themeButton->setPopupMode(QToolButton::InstantPopup);
-    themeButton->setMenu(new QMenu(this));
-    toolbar->addWidget(themeButton);
-    
-    // Add theme actions to the theme button menu
-    m_themeActionGroup = new QActionGroup(this);
-    m_systemThemeAction = new QAction(tr("System"), this);
-    m_systemThemeAction->setCheckable(true);
-    m_lightThemeAction = new QAction(tr("Light"), this);
-    m_lightThemeAction->setCheckable(true);
-    m_darkThemeAction = new QAction(tr("Dark"), this);
-    m_darkThemeAction->setCheckable(true);
-    
-    m_themeActionGroup->addAction(m_systemThemeAction);
-    m_themeActionGroup->addAction(m_lightThemeAction);
-    m_themeActionGroup->addAction(m_darkThemeAction);
-    
-    themeButton->menu()->addAction(m_systemThemeAction);
-    themeButton->menu()->addAction(m_lightThemeAction);
-    themeButton->menu()->addAction(m_darkThemeAction);
-    
-    // Connect theme actions
-    connect(m_systemThemeAction, &QAction::triggered, this, [this]() { switchTheme(true, Theme::System); });
-    connect(m_lightThemeAction, &QAction::triggered, this, [this]() { switchTheme(true, Theme::Light); });
-    connect(m_darkThemeAction, &QAction::triggered, this, [this]() { switchTheme(true, Theme::Dark); });
 }
 
 void MainWindow::blockApplication()
@@ -743,7 +699,7 @@ void MainWindow::showApplicationDetails()
     if (created.isValid()) {
         details += QString("<b>%1:</b> %2<br>")
             .arg(tr("Created"))
-            .arg(created.toString(Qt::SystemLocaleLongDate));
+            .arg(created.toString(QLocale::system().dateFormat(QLocale::LongFormat)));
     }
     
     details += QString("<b>%1:</b> %2<br>")
@@ -753,11 +709,11 @@ void MainWindow::showApplicationDetails()
     details += "<br><b>" + tr("Network Activity") + "</b><br>";
     details += QString("<b>%1:</b> %2<br>")
         .arg(tr("Downloaded"))
-        .arg(formatBytes(stats.downloaded));
+        .arg(formatBytes(stats.totalDownloaded));
     
     details += QString("<b>%1:</b> %2<br>")
         .arg(tr("Uploaded"))
-        .arg(formatBytes(stats.uploaded));
+        .arg(formatBytes(stats.totalUploaded));
     
     // Check if application is blocked
     FirewallManager *firewall = FirewallManager::instance();
@@ -931,7 +887,7 @@ void MainWindow::testAlertScenarios()
     {
         AlertManager::Alert alert;
         alert.type = AlertManager::HighBandwidthUsage;
-        alert.severity = AlertManager::Warning;
+        alert.severity = AlertManager::Medium;
         alert.title = tr("High Bandwidth Usage");
         alert.description = tr("Application 'TestApp.exe' is using 15.7 MB/s of bandwidth");
         alert.source = "192.168.1.100:54322";
@@ -989,6 +945,7 @@ void MainWindow::testAlertScenarios()
 
 void MainWindow::updateInterfaceList()
 {
+    DEBUG_WRAP_FUNCTION();
     if (!m_interfaceCombo) {
         return;
     }
@@ -1006,21 +963,21 @@ void MainWindow::updateInterfaceList()
     m_interfaceCombo->addItem(tr("All Interfaces"), "");
     
     // Add each interface to the combo box
-    for (const QNetworkInterface &interface : interfaces) {
+    for (const QNetworkInterface &netInterface : interfaces) {
         // Skip loopback and inactive interfaces
-        if (interface.flags() & QNetworkInterface::IsLoopBack || 
-            !(interface.flags() & QNetworkInterface::IsUp) ||
-            !(interface.flags() & QNetworkInterface::IsRunning)) {
+        if (netInterface.flags() & QNetworkInterface::IsLoopBack || 
+            !(netInterface.flags() & QNetworkInterface::IsUp) ||
+            !(netInterface.flags() & QNetworkInterface::IsRunning)) {
             continue;
         }
         
-        QString displayName = interface.humanReadableName();
+        QString displayName = netInterface.humanReadableName();
         if (displayName.isEmpty()) {
-            displayName = interface.name();
+            displayName = netInterface.name();
         }
         
         // Add the interface to the combo box
-        m_interfaceCombo->addItem(displayName, interface.name());
+        m_interfaceCombo->addItem(displayName, netInterface.name());
     }
     
     // Restore previous selection if it still exists
@@ -1048,8 +1005,14 @@ void MainWindow::onAlertReceived(const AlertManager::Alert &alert)
             case AlertManager::Info:
                 palette.setColor(QPalette::WindowText, Qt::blue);
                 break;
-            case AlertManager::Warning:
+            case AlertManager::Low:
+                palette.setColor(QPalette::WindowText, Qt::darkGreen);
+                break;
+            case AlertManager::Medium:
                 palette.setColor(QPalette::WindowText, QColor(255, 165, 0)); // Orange
+                break;
+            case AlertManager::High:
+                palette.setColor(QPalette::WindowText, QColor(255, 69, 0)); // OrangeRed
                 break;
             case AlertManager::Critical:
                 palette.setColor(QPalette::WindowText, Qt::red);
@@ -1099,13 +1062,9 @@ void MainWindow::setMonitoring(bool enabled)
     // Update UI elements
     if (m_startStopAction) {
         m_startStopAction->setChecked(enabled);
-        m_startStopAction->setIcon(QIcon(enabled ? ":/icons/stop.png" : ":/icons/start.png"));
+        m_startStopAction->setIcon(QIcon(enabled ? ":/resources/icons/png/stop.png" : ":/resources/icons/png/start.png"));
         m_startStopAction->setText(enabled ? tr("Stop") : tr("Start"));
-    // Update UI
-    m_startStopAction->setChecked(enabled);
-    m_startStopAction->setIcon(QIcon(
-        enabled ? ":/icons/stop.png" : ":/icons/start.png"));
-    m_startStopAction->setText(enabled ? tr("Stop") : tr("Start"));
+    }
     
     m_interfaceCombo->setEnabled(!enabled);
     m_refreshAction->setEnabled(!enabled);
@@ -1154,6 +1113,14 @@ void MainWindow::quitApplication()
     // Stop monitoring if active
     if (m_isMonitoring) {
         setMonitoring(false);
+        if (m_networkMonitor) {
+            m_networkMonitor->stopCapture();
+        }
+    }
+    
+    // Stop AlertManager monitoring
+    if (m_alertManager) {
+        m_alertManager->stopMonitoring();
     }
     
     // Close the application
@@ -1162,6 +1129,19 @@ void MainWindow::quitApplication()
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    // Stop monitoring if active
+    if (m_isMonitoring) {
+        setMonitoring(false);
+        if (m_networkMonitor) {
+            m_networkMonitor->stopCapture();
+        }
+    }
+    
+    // Stop AlertManager monitoring
+    if (m_alertManager) {
+        m_alertManager->stopMonitoring();
+    }
+    
     // Check if system tray is available
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         // Minimize to tray instead of closing
@@ -1171,4 +1151,258 @@ void MainWindow::closeEvent(QCloseEvent *event)
         // If no system tray, close normally
         event->accept();
     }
+}
+
+// Missing function implementations
+void MainWindow::updateNetworkStats()
+{
+    if (!m_networkMonitor) return;
+    
+    auto stats = m_networkMonitor->getStats();
+    quint64 totalDownload = 0;
+    quint64 totalUpload = 0;
+    
+    for (const auto &stat : stats) {
+        totalDownload += stat.totalDownloaded;
+        totalUpload += stat.totalUploaded;
+    }
+    
+    // Update status bar
+    if (m_statusLabel) {
+        QString statusText = tr("Download: %1 | Upload: %2")
+            .arg(formatBytes(totalDownload))
+            .arg(formatBytes(totalUpload));
+        m_statusLabel->setText(statusText);
+    }
+    
+    // Update charts if available
+    if (m_dashboardWidget) {
+        m_dashboardWidget->updateBandwidthData(totalDownload, totalUpload);
+    }
+}
+
+void MainWindow::onStartStopClicked()
+{
+    if (m_isMonitoring) {
+        setMonitoring(false);
+        if (m_networkMonitor) {
+            m_networkMonitor->stopCapture();
+        }
+    } else {
+        setMonitoring(true);
+        if (m_networkMonitor) {
+            QString interfaceName = m_interfaceCombo->currentData().toString();
+            m_networkMonitor->startCapture(interfaceName);
+        }
+    }
+}
+
+void MainWindow::onInterfaceSelected(int index)
+{
+    if (index < 0) return;
+    
+    QString interfaceName = m_interfaceCombo->itemData(index).toString();
+    
+    // Stop current monitoring if active
+    if (m_isMonitoring && m_networkMonitor) {
+        m_networkMonitor->stopCapture();
+    }
+    
+    // Start monitoring on new interface if monitoring is enabled
+    if (m_isMonitoring && m_networkMonitor) {
+        m_networkMonitor->startCapture(interfaceName);
+    }
+    
+    // Update status
+    if (m_statusLabel) {
+        m_statusLabel->setText(tr("Interface: %1").arg(interfaceName));
+    }
+}
+
+void MainWindow::showContextMenu(const QPoint &pos)
+{
+    QMenu contextMenu(this);
+    
+    // Add actions based on context
+    QAction *detailsAction = contextMenu.addAction(tr("Show Details"));
+    QAction *blockAction = contextMenu.addAction(tr("Block Application"));
+    QAction *exportAction = contextMenu.addAction(tr("Export Data"));
+    
+    // Show menu and handle selection
+    QAction *selectedAction = contextMenu.exec(pos);
+    if (!selectedAction) return;
+    
+    if (selectedAction == detailsAction) {
+        showApplicationDetails();
+    } else if (selectedAction == blockAction) {
+        blockApplication();
+    } else if (selectedAction == exportAction) {
+        exportData();
+    }
+}
+
+void MainWindow::switchTheme(bool enabled, Theme theme)
+{
+    if (!enabled) return;
+    
+    m_currentTheme = theme;
+    updateTheme();
+    
+    // Save theme preference
+    QSettings settings;
+    settings.setValue("theme", static_cast<int>(theme));
+}
+
+void MainWindow::updateTheme()
+{
+    DEBUG_WRAP_FUNCTION();
+    
+    // Load the stylesheet file
+    QFile styleFile(":/resources/style.qss");
+    if (!styleFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "Could not open stylesheet file";
+        return;
+    }
+    
+    QString styleSheet = QLatin1String(styleFile.readAll());
+    
+    // Apply theme-specific modifications
+    if (m_currentTheme == Theme::Dark) {
+        // Set dark theme property
+        setProperty("theme", "dark");
+        styleSheet += "\nQMainWindow[theme=\"dark\"] { background-color: #2d2d2d; color: #f0f0f0; }";
+    } else if (m_currentTheme == Theme::Light) {
+        // Set light theme property
+        setProperty("theme", "light");
+        styleSheet += "\nQMainWindow[theme=\"light\"] { background-color: #ffffff; color: #2c2c2c; }";
+    } else {
+        // System theme - use default
+        setProperty("theme", "system");
+    }
+    
+    // Apply the stylesheet
+    setStyleSheet(styleSheet);
+    
+    // Force style update
+    style()->unpolish(this);
+    style()->polish(this);
+}
+
+void MainWindow::loadTheme()
+{
+    DEBUG_WRAP_FUNCTION();
+    QSettings settings;
+    int themeValue = settings.value("theme", static_cast<int>(Theme::System)).toInt();
+    m_currentTheme = static_cast<Theme>(themeValue);
+    
+    // Apply theme immediately
+    updateTheme();
+}
+
+void MainWindow::setupMenuBar()
+{
+    DEBUG_WRAP_FUNCTION();
+    QMenuBar *menuBar = this->menuBar();
+    
+    // File menu
+    QMenu *fileMenu = menuBar->addMenu(tr("&File"));
+    QAction *exportAction = fileMenu->addAction(tr("&Export Data"));
+    fileMenu->addSeparator();
+    QAction *exitAction = fileMenu->addAction(tr("E&xit"));
+    
+    // Tools menu
+    QMenu *toolsMenu = menuBar->addMenu(tr("&Tools"));
+    QAction *firewallAction = toolsMenu->addAction(tr("&Firewall Rules"));
+    QAction *alertsAction = toolsMenu->addAction(tr("&Alerts"));
+    QAction *settingsAction = toolsMenu->addAction(tr("&Settings"));
+    
+    // View menu
+    QMenu *viewMenu = menuBar->addMenu(tr("&View"));
+    QAction *refreshAction = viewMenu->addAction(tr("&Refresh"));
+    QAction *resetAction = viewMenu->addAction(tr("&Reset View"));
+    
+    // Theme submenu
+    QMenu *themeMenu = viewMenu->addMenu(tr("&Theme"));
+    m_themeActionGroup = new QActionGroup(this);
+    
+    m_systemThemeAction = new QAction(tr("&System"), this);
+    m_systemThemeAction->setCheckable(true);
+    m_systemThemeAction->setData(static_cast<int>(Theme::System));
+    m_themeActionGroup->addAction(m_systemThemeAction);
+    themeMenu->addAction(m_systemThemeAction);
+    
+    m_lightThemeAction = new QAction(tr("&Light"), this);
+    m_lightThemeAction->setCheckable(true);
+    m_lightThemeAction->setData(static_cast<int>(Theme::Light));
+    m_themeActionGroup->addAction(m_lightThemeAction);
+    themeMenu->addAction(m_lightThemeAction);
+    
+    m_darkThemeAction = new QAction(tr("&Dark"), this);
+    m_darkThemeAction->setCheckable(true);
+    m_darkThemeAction->setData(static_cast<int>(Theme::Dark));
+    m_themeActionGroup->addAction(m_darkThemeAction);
+    themeMenu->addAction(m_darkThemeAction);
+    
+    // Help menu
+    QMenu *helpMenu = menuBar->addMenu(tr("&Help"));
+    QAction *aboutAction = helpMenu->addAction(tr("&About"));
+    
+    // Connect actions
+    connect(exportAction, &QAction::triggered, this, &MainWindow::exportData);
+    connect(exitAction, &QAction::triggered, this, &QApplication::quit);
+    connect(firewallAction, &QAction::triggered, this, &MainWindow::showFirewallRules);
+    connect(alertsAction, &QAction::triggered, this, &MainWindow::showAlerts);
+    connect(refreshAction, &QAction::triggered, this, &MainWindow::refreshData);
+}
+
+QString MainWindow::formatBytes(quint64 bytes) const
+{
+    const QStringList units = {"B", "KB", "MB", "GB", "TB"};
+    int unitIndex = 0;
+    double size = static_cast<double>(bytes);
+    
+    while (size >= 1024.0 && unitIndex < units.size() - 1) {
+        size /= 1024.0;
+        unitIndex++;
+    }
+    
+    return QString("%1 %2").arg(size, 0, 'f', 2).arg(units[unitIndex]);
+}
+
+void MainWindow::refreshData()
+{
+    if (m_networkMonitor) {
+        m_networkMonitor->updateNetworkStats();
+    }
+    
+    // Refresh interface list
+    updateInterfaceList();
+    
+    // Update charts
+    if (m_dashboardWidget) {
+        m_dashboardWidget->updateBandwidthData(0, 0); // Refresh with current data
+    }
+    
+    // Update tables
+    updateApplicationList();
+    updateConnectionList();
+}
+
+void MainWindow::updateApplicationList()
+{
+    if (!m_networkMonitor) return;
+    
+    auto stats = m_networkMonitor->getStatsByApplication();
+    if (m_appModel) {
+        m_appModel->updateData(stats);
+    }
+}
+
+void MainWindow::updateConnectionList()
+{
+    if (!m_networkMonitor) return;
+    
+    auto connections = m_networkMonitor->getActiveConnections();
+    // Update connection table with new data
+    // Implementation depends on connection table model
 }

@@ -1,12 +1,55 @@
 cmake_minimum_required(VERSION 3.20)
 project(NetWire VERSION 0.1.0 LANGUAGES CXX)
 
+# Set Qt6 installation path
+set(QT_ROOT "C:/Qt/6.9.1/msvc2022_64" CACHE PATH "Path to Qt6 installation")
+
+# Print debug information
+message(STATUS "Current working directory: ${CMAKE_CURRENT_SOURCE_DIR}")
+message(STATUS "QT_ROOT: ${QT_ROOT}")
+
+# Verify Qt6 directory exists
+if(NOT EXISTS "${QT_ROOT}")
+    message(FATAL_ERROR "Qt6 directory not found at: ${QT_ROOT}")
+endif()
+
+# Set the path to the Qt6Config.cmake file
+set(Qt6_DIR "${QT_ROOT}/lib/cmake/Qt6" CACHE PATH "Path to Qt6 CMake configuration" FORCE)
+set(CMAKE_PREFIX_PATH "${QT_ROOT}" CACHE STRING "" FORCE)
+
 # C++ Standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+
+# Windows-specific settings
+if(WIN32)
+    set(CMAKE_WIN32_EXECUTABLE TRUE)
+    add_definitions(-DWIN32_LEAN_AND_MEAN)
+    add_definitions(-DNOMINMAX)
+endif()
+
+# Find Qt6 package with required components
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Charts Concurrent)
+
+# Print debug info
+message(STATUS "Found Qt6 version: ${Qt6_VERSION}")
+message(STATUS "Qt6 Core found: ${Qt6Core_FOUND}")
+message(STATUS "Qt6 Gui found: ${Qt6Gui_FOUND}")
+message(STATUS "Qt6 Widgets found: ${Qt6Widgets_FOUND}")
+message(STATUS "Qt6 Network found: ${Qt6Network_FOUND}")
+message(STATUS "Qt6 Charts found: ${Qt6Charts_FOUND}")
+message(STATUS "Qt6 Concurrent found: ${Qt6Concurrent_FOUND}")
+
+# Set include directories
+include_directories(${Qt6Core_INCLUDE_DIRS})
+include_directories(${Qt6Gui_INCLUDE_DIRS})
+include_directories(${Qt6Widgets_INCLUDE_DIRS})
+include_directories(${Qt6Network_INCLUDE_DIRS})
+include_directories(${Qt6Charts_INCLUDE_DIRS})
+include_directories(${Qt6Concurrent_INCLUDE_DIRS})
 
 # Find Vulkan headers to satisfy Qt6 requirements
 find_package(VulkanHeaders CONFIG QUIET)
@@ -16,8 +59,25 @@ else()
     message(STATUS "Vulkan headers not found, but this is optional")
 endif()
 
-# Find required packages
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Core Gui Charts Concurrent)
+# Find required Qt6 components
+set(QT_COMPONENTS
+    Core
+    Gui
+    Widgets
+    Network
+    Charts
+    Concurrent
+)
+
+# Find Qt6 package with all required components
+find_package(Qt6 REQUIRED COMPONENTS ${QT_COMPONENTS})
+
+# Set include directories
+include_directories(${Qt6Core_INCLUDE_DIRS})
+include_directories(${Qt6Gui_INCLUDE_DIRS})
+include_directories(${Qt6Widgets_INCLUDE_DIRS})
+include_directories(${Qt6Network_INCLUDE_DIRS})
+include_directories(${Qt6Charts_INCLUDE_DIRS})
 
 # libpcap configuration for Windows
 # vcpkg toolchain will be set via command line
@@ -64,9 +124,15 @@ set(RESOURCES
     resources.qrc
 )
 
+# Add minimal resource file for testing
+qt6_add_resources(RESOURCE_FILES
+    minimal.qrc
+)
+
 # Add source files
 add_executable(NetWire
     src/main.cpp
+    src/globallogger.cpp
     src/mainwindow.cpp
     src/networkmonitor.cpp
     src/firewallmanager.cpp
@@ -81,8 +147,10 @@ add_executable(NetWire
     src/charts/connectionchart.cpp
     src/charts/applicationpiechart.cpp
     src/charts/connectiontimelinechart.cpp
+    src/charts/networkheatmap.cpp
     src/utils/animations.cpp
     # Headers
+    src/globallogger.h
     src/networkmonitor.h
     src/mainwindow.h
     src/firewallmanager.h
@@ -96,12 +164,13 @@ add_executable(NetWire
     src/charts/connectionchart.h
     src/charts/applicationpiechart.h
     src/charts/connectiontimelinechart.h
+    src/charts/networkheatmap.h
     src/utils/animations.h
     # UI files
     src/firewallrulesdialog.ui
     src/alertsdialog.ui
     src/alertsettingsdialog.ui
-    ${RESOURCES}
+    ${RESOURCE_FILES}
 )
 
 # Link libraries
@@ -135,6 +204,23 @@ target_include_directories(NetWire PRIVATE
     ${Qt6Charts_INCLUDE_DIRS}
     ${Qt6Charts_INCLUDE_DIRS}/QtCharts
 )
+
+# Windows-specific target properties
+if(WIN32)
+    set_target_properties(NetWire PROPERTIES
+        WIN32_EXECUTABLE TRUE
+    )
+    # Add definition to use only one entry point
+    target_compile_definitions(NetWire PRIVATE WIN32_LEAN_AND_MEAN)
+    
+    # Set manifest for admin privileges
+    set_target_properties(NetWire PROPERTIES
+        LINK_FLAGS "/MANIFEST:NO"
+    )
+    
+    # Add manifest file for admin privileges
+    target_sources(NetWire PRIVATE app.manifest)
+endif()
 
 # Install rules
 install(TARGETS NetWire

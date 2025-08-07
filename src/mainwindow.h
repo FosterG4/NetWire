@@ -18,6 +18,12 @@
 #include <QTableWidget>
 #include <QComboBox>
 #include <QLabel>
+#include <QCheckBox>
+#include <QToolButton>
+#include <QtConcurrent>
+#include <QAction>
+#include <QToolBar>
+// Windows-specific includes removed for Qt 6 compatibility
 #include "networkmonitor.h"
 #include "firewallrulesdialog.h"
 #include "alertmanager.h"
@@ -105,6 +111,7 @@ private slots:
     void updateInterfaceList();
     void setMonitoring(bool enabled);
     void exportData();
+    void refreshData();
     void showFirewallRules();
     void showAlerts();
     void onAlertReceived(const AlertManager::Alert &alert);
@@ -193,6 +200,7 @@ private:
     
     // UI Components
     QAction *m_startStopAction;
+    QAction *m_refreshAction;
     QComboBox *m_interfaceCombo;
     QTableView *m_appsTable;
     QTableWidget *m_connectionsTable;

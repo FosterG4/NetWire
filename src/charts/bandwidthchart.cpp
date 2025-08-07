@@ -11,6 +11,11 @@
 
 BandwidthChart::BandwidthChart(QWidget *parent)
     : QChartView(parent)
+    , m_chart(nullptr)
+    , m_downloadSeries(nullptr)
+    , m_uploadSeries(nullptr)
+    , m_axisX(nullptr)
+    , m_axisY(nullptr)
     , m_dataPointCount(0)
     , m_maxPoints(DEFAULT_MAX_POINTS)
     , m_dataUpdateAnimation(nullptr)
@@ -190,6 +195,10 @@ void BandwidthChart::setupSeries()
 {
     if (!m_chart) {
         throw std::runtime_error("Chart must be initialized before series");
+    }
+    
+    if (!m_axisX || !m_axisY) {
+        throw std::runtime_error("Axes must be initialized before series");
     }
     
     m_downloadSeries = new QLineSeries();

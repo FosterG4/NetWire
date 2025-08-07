@@ -5,6 +5,7 @@
 #include "networkcharts.h"
 #include <QGridLayout>
 #include <QFont>
+#include <QDebug>
 
 DashboardWidget::DashboardWidget(QWidget *parent)
     : QWidget(parent)
@@ -96,25 +97,81 @@ void DashboardWidget::setupStatisticsWidgets()
 
 void DashboardWidget::setupCharts()
 {
+    qDebug() << "Setting up charts...";
+    
     auto chartsLayout = qobject_cast<QVBoxLayout*>(m_chartsGroup->layout());
     
     // Create bandwidth chart
-    m_bandwidthChart = new BandwidthChart(this);
-    chartsLayout->addWidget(m_bandwidthChart);
+    qDebug() << "Creating BandwidthChart...";
+    try {
+        m_bandwidthChart = new BandwidthChart(this);
+        chartsLayout->addWidget(m_bandwidthChart);
+        qDebug() << "BandwidthChart created successfully";
+    } catch (const std::exception& e) {
+        qDebug() << "Error creating BandwidthChart:" << e.what();
+        QLabel *errorLabel = new QLabel("Error creating bandwidth chart", this);
+        chartsLayout->addWidget(errorLabel);
+    } catch (...) {
+        qDebug() << "Unknown error creating BandwidthChart";
+        QLabel *errorLabel = new QLabel("Unknown error creating bandwidth chart", this);
+        chartsLayout->addWidget(errorLabel);
+    }
     
     // Create network charts (placeholder for now)
-    m_networkCharts = new NetworkCharts(this);
-    chartsLayout->addWidget(m_networkCharts);
+    qDebug() << "Creating NetworkCharts...";
+    try {
+        m_networkCharts = new NetworkCharts(this);
+        chartsLayout->addWidget(m_networkCharts);
+        qDebug() << "NetworkCharts created successfully";
+    } catch (const std::exception& e) {
+        qDebug() << "Error creating NetworkCharts:" << e.what();
+        QLabel *errorLabel = new QLabel("Error creating network charts", this);
+        chartsLayout->addWidget(errorLabel);
+    } catch (...) {
+        qDebug() << "Unknown error creating NetworkCharts";
+        QLabel *errorLabel = new QLabel("Unknown error creating network charts", this);
+        chartsLayout->addWidget(errorLabel);
+    }
     
     // Create application pie chart
-    auto pieChartLayout = qobject_cast<QHBoxLayout*>(m_pieChartGroup->layout());
-    m_applicationPieChart = new ApplicationPieChart(this);
-    pieChartLayout->addWidget(m_applicationPieChart);
+    qDebug() << "Creating ApplicationPieChart...";
+    try {
+        auto pieChartLayout = qobject_cast<QHBoxLayout*>(m_pieChartGroup->layout());
+        m_applicationPieChart = new ApplicationPieChart(this);
+        pieChartLayout->addWidget(m_applicationPieChart);
+        qDebug() << "ApplicationPieChart created successfully";
+    } catch (const std::exception& e) {
+        qDebug() << "Error creating ApplicationPieChart:" << e.what();
+        auto pieChartLayout = qobject_cast<QHBoxLayout*>(m_pieChartGroup->layout());
+        QLabel *errorLabel = new QLabel("Error creating application pie chart", this);
+        pieChartLayout->addWidget(errorLabel);
+    } catch (...) {
+        qDebug() << "Unknown error creating ApplicationPieChart";
+        auto pieChartLayout = qobject_cast<QHBoxLayout*>(m_pieChartGroup->layout());
+        QLabel *errorLabel = new QLabel("Unknown error creating application pie chart", this);
+        pieChartLayout->addWidget(errorLabel);
+    }
     
     // Create connection timeline chart
-    auto timelineLayout = qobject_cast<QVBoxLayout*>(m_timelineGroup->layout());
-    m_connectionTimelineChart = new ConnectionTimelineChart(this);
-    timelineLayout->addWidget(m_connectionTimelineChart);
+    qDebug() << "Creating ConnectionTimelineChart...";
+    try {
+        auto timelineLayout = qobject_cast<QVBoxLayout*>(m_timelineGroup->layout());
+        m_connectionTimelineChart = new ConnectionTimelineChart(this);
+        timelineLayout->addWidget(m_connectionTimelineChart);
+        qDebug() << "ConnectionTimelineChart created successfully";
+    } catch (const std::exception& e) {
+        qDebug() << "Error creating ConnectionTimelineChart:" << e.what();
+        auto timelineLayout = qobject_cast<QVBoxLayout*>(m_timelineGroup->layout());
+        QLabel *errorLabel = new QLabel("Error creating connection timeline chart", this);
+        timelineLayout->addWidget(errorLabel);
+    } catch (...) {
+        qDebug() << "Unknown error creating ConnectionTimelineChart";
+        auto timelineLayout = qobject_cast<QVBoxLayout*>(m_timelineGroup->layout());
+        QLabel *errorLabel = new QLabel("Unknown error creating connection timeline chart", this);
+        timelineLayout->addWidget(errorLabel);
+    }
+    
+    qDebug() << "All charts setup completed";
 }
 
 void DashboardWidget::updateBandwidthData(quint64 download, quint64 upload)

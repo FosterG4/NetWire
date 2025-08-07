@@ -5,7 +5,6 @@
         <file>resources/icons/app.ico</file>
         <file>resources/icons/png/start.png</file>
         <file>resources/icons/png/stop.png</file>
-        <file>resources/icons/png/refresh.png</file>
         <file>resources/icons/png/dashboard.png</file>
         <file>resources/icons/png/connections.png</file>
         <file>resources/icons/png/theme.png</file>
@@ -13,5 +12,12 @@
         
         <!-- Other Resources -->
         <file>resources/style.qss</file>
+    </qresource>
+    
+    <!-- Aliased resources for backward compatibility -->
+    <qresource prefix="/png">
+        <file>resources/icons/png/refresh.png</file>
+        <file>resources/icons/png/alert.png</file>
+        <file>resources/icons/png/firewall.png</file>
     </qresource>
 </RCC>
