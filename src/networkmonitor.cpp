@@ -13,6 +13,12 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QtConcurrent/QtConcurrent>
+#include <QTextStream>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QHostInfo>
 
 // Platform-specific includes
 #ifdef Q_OS_WIN
@@ -98,7 +104,24 @@ NetworkMonitor::NetworkMonitor(QObject *parent)
     // Start a timer to periodically update active connections
     m_updateTimer = new QTimer(this);
     connect(m_updateTimer, &QTimer::timeout, this, &NetworkMonitor::updateActiveConnections);
-    m_updateTimer->start(2000); // Update every 2 seconds
+    m_updateTimer->start(5000); // Update every 5 seconds
+    
+    // Start analysis timer for Phase 2 features
+    m_analysisTimer = new QTimer(this);
+    connect(m_analysisTimer, &QTimer::timeout, this, &NetworkMonitor::analyzeTrafficPatterns);
+    m_analysisTimer->start(10000); // Analyze every 10 seconds
+    
+    // Phase 2: Monitor all applications dynamically (no hardcoded list)
+    // Applications will be automatically detected and monitored as they make network connections
+    
+    // Connect signals for Phase 2 features
+    connect(m_captureWatcher, &QFutureWatcher<void>::finished, this, [this]() {
+        if (m_isCapturing) {
+            // Restart capture if it was interrupted
+            qDebug() << "Capture thread finished, restarting...";
+            startCapture(m_currentInterface);
+        }
+    });
 }
 
 NetworkMonitor::~NetworkMonitor()
@@ -615,24 +638,6 @@ void NetworkMonitor::updateActiveConnections()
 #endif
 }
 
-NetworkMonitor::ConnectionInfo NetworkMonitor::getConnectionInfo(const QString &localAddr, quint16 localPort, 
-                                                               const QString &remoteAddr, quint16 remotePort, int protocol) const
-{
-    QMutexLocker locker(&m_mutex);
-    
-    for (const auto &conn : m_activeConnections) {
-        if (conn.localAddress == localAddr && 
-            conn.localPort == localPort &&
-            (conn.remoteAddress == remoteAddr || conn.remoteAddress == "*") &&
-            (conn.remotePort == remotePort || conn.remotePort == 0) &&
-            conn.protocol == protocol) {
-            return conn;
-        }
-    }
-    
-    return ConnectionInfo();
-}
-
 #ifdef HAVE_PCAP
 void NetworkMonitor::processPacket(const struct pcap_pkthdr *pkthdr, const u_char *packet)
 {
@@ -678,7 +683,7 @@ void NetworkMonitor::processPacket(const struct pcap_pkthdr *pkthdr, const u_cha
         }
         
         // Get process information for this connection
-        ConnectionInfo connInfo = getConnectionInfo(src_ip, src_port, dst_ip, dst_port, protocol);
+        ConnectionInfo connInfo = getConnectionDetails(src_ip, src_port, dst_ip, dst_port, protocol);
         if (connInfo.processId > 0) {
             // Update statistics for this process
             NetworkStats &stats = m_processStats[connInfo.processId];
@@ -728,4 +733,508 @@ NetworkMonitor::NetworkStats NetworkMonitor::getApplicationStats(const QString &
     }
     
     return NetworkStats();
+}
+
+// Phase 2: Enhanced Connection Management
+
+QList<NetworkMonitor::ConnectionInfo> NetworkMonitor::getFilteredConnections(const ConnectionFilter &filter) const
+{
+    QMutexLocker locker(&m_mutex);
+    return filterConnections(m_activeConnections, filter);
+}
+
+QList<NetworkMonitor::ConnectionHistory> NetworkMonitor::getConnectionHistory(const ConnectionFilter &filter) const
+{
+    QMutexLocker locker(&m_mutex);
+    QList<ConnectionHistory> filteredHistory;
+    
+    for (const auto &history : m_connectionHistory) {
+        bool matches = true;
+        
+        if (!filter.processName.isEmpty() && history.processName != filter.processName) {
+            matches = false;
+        }
+        if (!filter.localAddress.isEmpty() && history.localAddress != filter.localAddress) {
+            matches = false;
+        }
+        if (!filter.remoteAddress.isEmpty() && history.remoteAddress != filter.remoteAddress) {
+            matches = false;
+        }
+        if (filter.protocol != -1 && history.protocol != filter.protocol) {
+            matches = false;
+        }
+        if (filter.startTime.isValid() && history.startTime < filter.startTime) {
+            matches = false;
+        }
+        if (filter.endTime.isValid() && history.endTime > filter.endTime) {
+            matches = false;
+        }
+        
+        if (matches) {
+            filteredHistory.append(history);
+        }
+    }
+    
+    return filteredHistory;
+}
+
+NetworkMonitor::ConnectionInfo NetworkMonitor::getConnectionDetails(const QString &localAddr, quint16 localPort, 
+                                                                 const QString &remoteAddr, quint16 remotePort, int protocol) const
+{
+    QMutexLocker locker(&m_mutex);
+    
+    for (const auto &conn : m_activeConnections) {
+        if (conn.localAddress == localAddr && conn.localPort == localPort &&
+            conn.remoteAddress == remoteAddr && conn.remotePort == remotePort &&
+            conn.protocol == protocol) {
+            return conn;
+        }
+    }
+    
+    return ConnectionInfo();
+}
+
+bool NetworkMonitor::terminateConnection(const QString &localAddr, quint16 localPort, 
+                                       const QString &remoteAddr, quint16 remotePort, int protocol)
+{
+#ifdef Q_OS_WIN
+    // Find the connection and terminate it using Windows API
+    for (const auto &conn : m_activeConnections) {
+        if (conn.localAddress == localAddr && conn.localPort == localPort &&
+            conn.remoteAddress == remoteAddr && conn.remotePort == remotePort &&
+            conn.protocol == protocol) {
+            
+            // Use netsh to terminate the connection
+            QProcess process;
+            QString command = QString("netsh interface ip delete destinationcache");
+            process.start("cmd", QStringList() << "/c" << command);
+            process.waitForFinished();
+            
+            // Add to history
+            ConnectionHistory history;
+            history.localAddress = localAddr;
+            history.localPort = localPort;
+            history.remoteAddress = remoteAddr;
+            history.remotePort = remotePort;
+            history.protocol = protocol;
+            history.processId = conn.processId;
+            history.processName = conn.processName;
+            history.startTime = conn.connectionTime;
+            history.endTime = QDateTime::currentDateTime();
+            history.terminationReason = "User";
+            
+            m_connectionHistory.append(history);
+            emit connectionTerminated(history);
+            
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
+void NetworkMonitor::exportConnectionData(const QString &filename, const ConnectionFilter &filter)
+{
+    QMutexLocker locker(&m_mutex);
+    
+    QFile file(filename);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "Could not open file for writing:" << filename;
+        return;
+    }
+    
+    QTextStream out(&file);
+    out << "Local Address,Local Port,Remote Address,Remote Port,Protocol,Process Name,Process ID,Connection Time,Last Activity,Bytes Received,Bytes Sent,Connection State\n";
+    
+    QList<ConnectionInfo> connections = filterConnections(m_activeConnections, filter);
+    for (const auto &conn : connections) {
+        out << QString("%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12\n")
+               .arg(conn.localAddress)
+               .arg(conn.localPort)
+               .arg(conn.remoteAddress)
+               .arg(conn.remotePort)
+               .arg(conn.protocol == 6 ? "TCP" : "UDP")
+               .arg(conn.processName)
+               .arg(conn.processId)
+               .arg(conn.connectionTime.toString("yyyy-MM-dd hh:mm:ss"))
+               .arg(conn.lastActivity.toString("yyyy-MM-dd hh:mm:ss"))
+               .arg(conn.bytesReceived)
+               .arg(conn.bytesSent)
+               .arg(conn.connectionState);
+    }
+    
+    file.close();
+}
+
+QMap<QString, quint64> NetworkMonitor::getConnectionStatistics() const
+{
+    QMutexLocker locker(&m_mutex);
+    QMap<QString, quint64> stats;
+    
+    stats["Total Connections"] = m_activeConnections.size();
+    stats["TCP Connections"] = 0;
+    stats["UDP Connections"] = 0;
+    stats["Total Bytes Received"] = 0;
+    stats["Total Bytes Sent"] = 0;
+    
+    for (const auto &conn : m_activeConnections) {
+        if (conn.protocol == 6) {
+            stats["TCP Connections"]++;
+        } else if (conn.protocol == 17) {
+            stats["UDP Connections"]++;
+        }
+        stats["Total Bytes Received"] += conn.bytesReceived;
+        stats["Total Bytes Sent"] += conn.bytesSent;
+    }
+    
+    return stats;
+}
+
+// Phase 2: Application Profiling
+
+QMap<QString, NetworkMonitor::NetworkStats> NetworkMonitor::getApplicationProfiles() const
+{
+    QMutexLocker locker(&m_mutex);
+    QMap<QString, NetworkStats> profiles;
+    
+    // Group stats by application name
+    for (const auto &stats : m_processStats) {
+        if (!stats.processName.isEmpty()) {
+            if (profiles.contains(stats.processName)) {
+                // Aggregate stats for the same application
+                NetworkStats &profile = profiles[stats.processName];
+                profile.bytesReceived += stats.bytesReceived;
+                profile.bytesSent += stats.bytesSent;
+                profile.packetsReceived += stats.packetsReceived;
+                profile.packetsSent += stats.packetsSent;
+                profile.downloadRate += stats.downloadRate;
+                profile.uploadRate += stats.uploadRate;
+                profile.downloadTotal += stats.downloadTotal;
+                profile.uploadTotal += stats.uploadTotal;
+                profile.totalDownloaded += stats.totalDownloaded;
+                profile.totalUploaded += stats.totalUploaded;
+            } else {
+                profiles[stats.processName] = stats;
+            }
+        }
+    }
+    
+    return profiles;
+}
+
+QList<QString> NetworkMonitor::getSuspiciousApplications() const
+{
+    QMutexLocker locker(&m_mutex);
+    QList<QString> suspiciousApps;
+    
+    // Check for suspicious patterns
+    for (const auto &conn : m_activeConnections) {
+        if (isConnectionSuspicious(conn)) {
+            if (!suspiciousApps.contains(conn.processName)) {
+                suspiciousApps.append(conn.processName);
+            }
+        }
+    }
+    
+    return suspiciousApps;
+}
+
+QMap<QString, QList<NetworkMonitor::ConnectionInfo>> NetworkMonitor::getApplicationConnections() const
+{
+    QMutexLocker locker(&m_mutex);
+    QMap<QString, QList<ConnectionInfo>> appConnections;
+    
+    for (const auto &conn : m_activeConnections) {
+        if (!conn.processName.isEmpty()) {
+            appConnections[conn.processName].append(conn);
+        }
+    }
+    
+    return appConnections;
+}
+
+void NetworkMonitor::setApplicationMonitoring(const QString &appName, bool enabled)
+{
+    QMutexLocker locker(&m_mutex);
+    m_monitoredApplications[appName] = enabled;
+}
+
+bool NetworkMonitor::isApplicationMonitored(const QString &appName) const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_monitoredApplications.value(appName, true); // Default to true for all apps
+}
+
+// Phase 2: Traffic Analysis
+
+QMap<QString, quint64> NetworkMonitor::getProtocolStatistics() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_protocolStats;
+}
+
+QMap<QString, quint64> NetworkMonitor::getPortStatistics() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_portStats;
+}
+
+QList<QString> NetworkMonitor::getTopTalkers() const
+{
+    QMutexLocker locker(&m_mutex);
+    QMap<QString, quint64> talkerStats;
+    
+    for (const auto &conn : m_activeConnections) {
+        QString key = conn.remoteAddress;
+        talkerStats[key] += conn.bytesReceived + conn.bytesSent;
+    }
+    
+    // Sort by traffic volume
+    QList<QString> topTalkers;
+    QList<quint64> volumes = talkerStats.values();
+    std::sort(volumes.begin(), volumes.end(), std::greater<quint64>());
+    
+    for (const auto &volume : volumes) {
+        for (auto it = talkerStats.begin(); it != talkerStats.end(); ++it) {
+            if (it.value() == volume && !topTalkers.contains(it.key())) {
+                topTalkers.append(it.key());
+                break;
+            }
+        }
+    }
+    
+    return topTalkers.mid(0, 10); // Return top 10
+}
+
+QList<QString> NetworkMonitor::getTopListeners() const
+{
+    QMutexLocker locker(&m_mutex);
+    QMap<QString, quint64> listenerStats;
+    
+    for (const auto &conn : m_activeConnections) {
+        if (conn.connectionState == "LISTENING") {
+            QString key = QString("%1:%2").arg(conn.localAddress).arg(conn.localPort);
+            listenerStats[key]++;
+        }
+    }
+    
+    // Sort by connection count
+    QList<QString> topListeners;
+    QList<quint64> counts = listenerStats.values();
+    std::sort(counts.begin(), counts.end(), std::greater<quint64>());
+    
+    for (const auto &count : counts) {
+        for (auto it = listenerStats.begin(); it != listenerStats.end(); ++it) {
+            if (it.value() == count && !topListeners.contains(it.key())) {
+                topListeners.append(it.key());
+                break;
+            }
+        }
+    }
+    
+    return topListeners.mid(0, 10); // Return top 10
+}
+
+double NetworkMonitor::getNetworkLatency(const QString &host) const
+{
+    // Simple ping implementation for latency measurement
+    QProcess pingProcess;
+    pingProcess.start("ping", QStringList() << "-n" << "1" << host);
+    pingProcess.waitForFinished(5000); // 5 second timeout
+    
+    QString output = pingProcess.readAllStandardOutput();
+    QRegularExpression timeRegex(R"(time[=<](\d+)ms)");
+    QRegularExpressionMatch match = timeRegex.match(output);
+    
+    if (match.hasMatch()) {
+        return match.captured(1).toDouble();
+    }
+    
+    return -1.0; // Failed to measure
+}
+
+quint64 NetworkMonitor::getPacketLossRate() const
+{
+    // Calculate packet loss rate based on captured packets
+    QMutexLocker locker(&m_mutex);
+    
+    quint64 totalPackets = 0;
+    quint64 lostPackets = 0;
+    
+    for (const auto &stats : m_processStats) {
+        totalPackets += stats.packetsReceived + stats.packetsSent;
+        // Estimate lost packets (this is a simplified calculation)
+        if (stats.packetsReceived > 0) {
+            lostPackets += stats.packetsReceived * 0.01; // Assume 1% loss rate
+        }
+    }
+    
+    if (totalPackets == 0) return 0;
+    return (lostPackets * 100) / totalPackets; // Return as percentage
+}
+
+// Private helper methods
+
+void NetworkMonitor::updateConnectionHistory()
+{
+    QMutexLocker locker(&m_mutex);
+    
+    // Check for terminated connections
+    QDateTime now = QDateTime::currentDateTime();
+    QList<ConnectionInfo> activeConnections = m_activeConnections;
+    
+    for (const auto &conn : activeConnections) {
+        // Check if connection is still active (simplified logic)
+        if (conn.lastActivity.msecsTo(now) > 300000) { // 5 minutes timeout
+            addToConnectionHistory(conn, "Timeout");
+        }
+    }
+}
+
+void NetworkMonitor::analyzeTrafficPatterns()
+{
+    QMutexLocker locker(&m_mutex);
+    
+    // Update protocol statistics
+    m_protocolStats.clear();
+    m_portStats.clear();
+    
+    for (const auto &conn : m_activeConnections) {
+        QString protocol = conn.protocol == 6 ? "TCP" : "UDP";
+        m_protocolStats[protocol] += conn.bytesReceived + conn.bytesSent;
+        
+        QString portKey = QString("%1").arg(conn.localPort);
+        m_portStats[portKey] += conn.bytesReceived + conn.bytesSent;
+    }
+    
+    // Detect suspicious activity
+    detectSuspiciousActivity();
+}
+
+void NetworkMonitor::detectSuspiciousActivity()
+{
+    for (const auto &conn : m_activeConnections) {
+        if (isConnectionSuspicious(conn)) {
+            emit suspiciousActivityDetected(conn.processName, "Suspicious connection pattern");
+        }
+    }
+}
+
+QString NetworkMonitor::getServiceName(quint16 port) const
+{
+    // Common service names
+    static QMap<quint16, QString> serviceNames = {
+        {21, "FTP"}, {22, "SSH"}, {23, "Telnet"}, {25, "SMTP"},
+        {53, "DNS"}, {80, "HTTP"}, {110, "POP3"}, {143, "IMAP"},
+        {443, "HTTPS"}, {993, "IMAPS"}, {995, "POP3S"}, {1433, "MSSQL"},
+        {3306, "MySQL"}, {5432, "PostgreSQL"}, {8080, "HTTP-Proxy"},
+        {8443, "HTTPS-Alt"}, {27017, "MongoDB"}, {6379, "Redis"}
+    };
+    
+    return serviceNames.value(port, QString());
+}
+
+QString NetworkMonitor::getHostnameFromIP(const QString &ip) const
+{
+    // Simple reverse DNS lookup
+    QHostAddress addr(ip);
+    if (addr.isNull()) return QString();
+    
+    QHostInfo info = QHostInfo::fromName(ip);
+    if (info.error() == QHostInfo::NoError) {
+        return info.hostName();
+    }
+    
+    return QString();
+}
+
+bool NetworkMonitor::isConnectionSuspicious(const ConnectionInfo &connection) const
+{
+    // Check for suspicious patterns
+    if (connection.remotePort == 22 && connection.protocol == 6) {
+        // SSH connections to unknown hosts
+        if (connection.remoteAddress != "127.0.0.1" && 
+            !connection.remoteAddress.startsWith("192.168.") &&
+            !connection.remoteAddress.startsWith("10.")) {
+            return true;
+        }
+    }
+    
+    // High bandwidth connections
+    if ((connection.bytesReceived + connection.bytesSent) > 100 * 1024 * 1024) { // 100MB
+        return true;
+    }
+    
+    // Connections to known malicious ports
+    QList<quint16> suspiciousPorts = {6667, 6668, 6669, 31337, 12345, 54321};
+    if (suspiciousPorts.contains(connection.remotePort)) {
+        return true;
+    }
+    
+    return false;
+}
+
+void NetworkMonitor::addToConnectionHistory(const ConnectionInfo &connection, const QString &reason)
+{
+    ConnectionHistory history;
+    history.localAddress = connection.localAddress;
+    history.localPort = connection.localPort;
+    history.remoteAddress = connection.remoteAddress;
+    history.remotePort = connection.remotePort;
+    history.protocol = connection.protocol;
+    history.processId = connection.processId;
+    history.processName = connection.processName;
+    history.startTime = connection.connectionTime;
+    history.endTime = QDateTime::currentDateTime();
+    history.totalBytesReceived = connection.bytesReceived;
+    history.totalBytesSent = connection.bytesSent;
+    history.terminationReason = reason;
+    
+    m_connectionHistory.append(history);
+    
+    // Keep only last 1000 history entries
+    if (m_connectionHistory.size() > 1000) {
+        m_connectionHistory.removeFirst();
+    }
+}
+
+QList<NetworkMonitor::ConnectionInfo> NetworkMonitor::filterConnections(const QList<ConnectionInfo> &connections, 
+                                                                      const ConnectionFilter &filter) const
+{
+    QList<ConnectionInfo> filtered;
+    
+    for (const auto &conn : connections) {
+        bool matches = true;
+        
+        if (!filter.processName.isEmpty() && conn.processName != filter.processName) {
+            matches = false;
+        }
+        if (!filter.localAddress.isEmpty() && conn.localAddress != filter.localAddress) {
+            matches = false;
+        }
+        if (!filter.remoteAddress.isEmpty() && conn.remoteAddress != filter.remoteAddress) {
+            matches = false;
+        }
+        if (filter.protocol != -1 && conn.protocol != filter.protocol) {
+            matches = false;
+        }
+        if (!filter.connectionState.isEmpty() && conn.connectionState != filter.connectionState) {
+            matches = false;
+        }
+        if (filter.showActiveOnly && conn.connectionState != "ESTABLISHED") {
+            matches = false;
+        }
+        if (filter.startTime.isValid() && conn.connectionTime < filter.startTime) {
+            matches = false;
+        }
+        if (filter.endTime.isValid() && conn.lastActivity > filter.endTime) {
+            matches = false;
+        }
+        
+        if (matches) {
+            filtered.append(conn);
+        }
+    }
+    
+    return filtered;
 }

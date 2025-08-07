@@ -205,8 +205,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     
     LOG_DEBUG("Setting window properties");
-    setWindowTitle(tr("NetWire - Basic Test"));
-    resize(1024, 768);
+    setWindowTitle(tr("NetWire - Network Monitor"));
+    resize(1200, 600); // More horizontal, less vertical
     
     LOG_DEBUG("About to call setupUI()");
     setupUI();
@@ -245,11 +245,11 @@ void MainWindow::setupUI()
     m_alertsDialog->setAlertManager(m_alertManager);
     
     setWindowTitle(tr("NetWire - Network Monitor"));
-    resize(1024, 768);
+    resize(1400, 500); // Much more horizontal, less vertical
     
     QVBoxLayout *mainLayout = new QVBoxLayout();
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(0);
+    mainLayout->setContentsMargins(1, 1, 1, 1); // Minimal margins
+    mainLayout->setSpacing(0); // No spacing
     
     QWidget *centralWidget = new QWidget(this);
     centralWidget->setLayout(mainLayout);
@@ -259,6 +259,10 @@ void MainWindow::setupUI()
     
     // Create the main tab widget
     QTabWidget *tabWidget = new QTabWidget(this);
+    tabWidget->setTabPosition(QTabWidget::North);
+    tabWidget->setTabBarAutoHide(false);
+    tabWidget->setDocumentMode(true);
+    tabWidget->setMinimumHeight(400); // Smaller minimum height
     mainLayout->addWidget(tabWidget);
     
     // Create dashboard tab
@@ -268,22 +272,29 @@ void MainWindow::setupUI()
     // Create network activity heatmap tab
     QWidget *heatmapTab = new QWidget(this);
     QVBoxLayout *heatmapLayout = new QVBoxLayout(heatmapTab);
+    heatmapLayout->setContentsMargins(1, 1, 1, 1); // Minimal margins
+    heatmapLayout->setSpacing(1); // Minimal spacing
     
-    // Create toolbar for heatmap controls
+    // Create compact toolbar for heatmap controls
     QToolBar *heatmapToolbar = new QToolBar(tr("Heatmap Controls"), this);
-    heatmapToolbar->setIconSize(QSize(16, 16));
+    heatmapToolbar->setIconSize(QSize(20, 20)); // Standard icon size
+    heatmapToolbar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    heatmapToolbar->setMovable(false);
+    heatmapToolbar->setMaximumHeight(40); // Standard height
     
     // Add time range controls
-    QLabel *rangeLabel = new QLabel(tr("Time Range:"), this);
+    QLabel *rangeLabel = new QLabel(tr("Range:"), this);
+    rangeLabel->setMinimumWidth(50);
     heatmapToolbar->addWidget(rangeLabel);
     
     QComboBox *rangeCombo = new QComboBox(this);
-    rangeCombo->addItem(tr("Last 7 Days"), 7);
-    rangeCombo->addItem(tr("Last 14 Days"), 14);
-    rangeCombo->addItem(tr("Last 30 Days"), 30);
-    rangeCombo->addItem(tr("Last 3 Months"), 90);
-    rangeCombo->addItem(tr("Last 6 Months"), 180);
-    rangeCombo->addItem(tr("Last Year"), 365);
+    rangeCombo->setMaximumWidth(120); // Standard width
+    rangeCombo->addItem(tr("7 Days"), 7);
+    rangeCombo->addItem(tr("14 Days"), 14);
+    rangeCombo->addItem(tr("30 Days"), 30);
+    rangeCombo->addItem(tr("3 Months"), 90);
+    rangeCombo->addItem(tr("6 Months"), 180);
+    rangeCombo->addItem(tr("1 Year"), 365);
     rangeCombo->setCurrentIndex(0);
     
     // Connect range changed signal
@@ -309,31 +320,35 @@ void MainWindow::setupUI()
     QDateTime startTime = now.addDays(-6);
     m_networkHeatmap->setTimeRange(startTime, now);
     
-    // Add data visibility toggles
+    // Add very compact data visibility toggles
     QCheckBox *showDownloadCheck = new QCheckBox(tr("Show Download"), this);
     showDownloadCheck->setChecked(true);
+    showDownloadCheck->setMaximumWidth(100);
     connect(showDownloadCheck, &QCheckBox::toggled, 
             m_networkHeatmap, &NetworkHeatmap::setShowDownloadData);
     heatmapToolbar->addWidget(showDownloadCheck);
     
     QCheckBox *showUploadCheck = new QCheckBox(tr("Show Upload"), this);
     showUploadCheck->setChecked(true);
+    showUploadCheck->setMaximumWidth(90);
     connect(showUploadCheck, &QCheckBox::toggled, 
             m_networkHeatmap, &NetworkHeatmap::setShowUploadData);
     heatmapToolbar->addWidget(showUploadCheck);
     
     QCheckBox *showCombinedCheck = new QCheckBox(tr("Show Combined"), this);
     showCombinedCheck->setChecked(true);
+    showCombinedCheck->setMaximumWidth(100);
     connect(showCombinedCheck, &QCheckBox::toggled, 
             m_networkHeatmap, &NetworkHeatmap::setShowCombinedData);
     heatmapToolbar->addWidget(showCombinedCheck);
     
-    // Add export button
+    // Add compact export button
     QToolButton *exportButton = new QToolButton(this);
     exportButton->setText(tr("Export"));
     exportButton->setIcon(QIcon(":/resources/icons/png/save.png"));
     exportButton->setToolTip(tr("Export heatmap data"));
     exportButton->setPopupMode(QToolButton::MenuButtonPopup);
+    exportButton->setMaximumWidth(80);
     
     QMenu *exportMenu = new QMenu(exportButton);
     QAction *exportCsvAction = exportMenu->addAction(tr("Export to CSV..."));
@@ -393,6 +408,15 @@ void MainWindow::setupUI()
     // Create applications tab
     QWidget *appsTab = new QWidget(this);
     QVBoxLayout *appsLayout = new QVBoxLayout(appsTab);
+    appsLayout->setContentsMargins(1, 1, 1, 1); // Minimal margins
+    appsLayout->setSpacing(0); // No spacing
+    
+    // Create scroll area for applications table
+    QScrollArea *appsScrollArea = new QScrollArea(this);
+    appsScrollArea->setWidgetResizable(true);
+    appsScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    appsScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    appsScrollArea->setMaximumHeight(350); // Limit height
     
     // Create applications table
     m_appsTable = new QTableView(this);
@@ -402,19 +426,38 @@ void MainWindow::setupUI()
     m_appsTable->setContextMenuPolicy(Qt::CustomContextMenu);
     m_appsTable->setSortingEnabled(true);
     m_appsTable->sortByColumn(0, Qt::AscendingOrder);
+    m_appsTable->setAlternatingRowColors(true);
+    m_appsTable->setShowGrid(true);
+    m_appsTable->setGridStyle(Qt::SolidLine);
+    m_appsTable->setMinimumHeight(300);
     
-    // Setup table columns
-    m_appsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    // Setup table columns with better proportions
+    m_appsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     m_appsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_appsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_appsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_appsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    m_appsTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
     
-    appsLayout->addWidget(m_appsTable);
+    // Set specific column widths
+    m_appsTable->setColumnWidth(0, 150); // Application name
+    m_appsTable->setColumnWidth(2, 80);  // Download
+    m_appsTable->setColumnWidth(3, 80);  // Upload
+    
+    appsScrollArea->setWidget(m_appsTable);
+    appsLayout->addWidget(appsScrollArea);
     tabWidget->addTab(appsTab, tr("Applications"));
     
     // Create connections tab
     QWidget *connectionsTab = new QWidget();
     QVBoxLayout *connectionsLayout = new QVBoxLayout(connectionsTab);
+    connectionsLayout->setContentsMargins(1, 1, 1, 1); // Minimal margins
+    connectionsLayout->setSpacing(0); // No spacing
+    
+    // Create scroll area for connections table
+    QScrollArea *connectionsScrollArea = new QScrollArea(this);
+    connectionsScrollArea->setWidgetResizable(true);
+    connectionsScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    connectionsScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    connectionsScrollArea->setMaximumHeight(350); // Limit height
     
     // Create connections table
     m_connectionsTable = new QTableWidget(0, 5, this);
@@ -428,13 +471,26 @@ void MainWindow::setupUI()
     m_connectionsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_connectionsTable->verticalHeader()->setVisible(false);
     m_connectionsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_connectionsTable->setAlternatingRowColors(true);
+    m_connectionsTable->setShowGrid(true);
+    m_connectionsTable->setGridStyle(Qt::SolidLine);
+    m_connectionsTable->setMinimumHeight(300);
     
-    connectionsLayout->addWidget(m_connectionsTable);
+    // Set initial column widths for better space usage
+    m_connectionsTable->setColumnWidth(0, 60);  // Protocol
+    m_connectionsTable->setColumnWidth(1, 150); // Local Address
+    m_connectionsTable->setColumnWidth(2, 150); // Remote Address
+    m_connectionsTable->setColumnWidth(3, 60);  // Status
+    m_connectionsTable->setColumnWidth(4, 100); // Process
+    
+    connectionsScrollArea->setWidget(m_connectionsTable);
+    connectionsLayout->addWidget(connectionsScrollArea);
     tabWidget->addTab(connectionsTab, tr("Connections"));
     
     // Create status bar
     m_statusLabel = new QLabel(tr("Ready"), this);
     statusBar()->addPermanentWidget(m_statusLabel, 1);
+    statusBar()->setMaximumHeight(16); // Very compact status bar
     
     setupSystemTray();
     
@@ -544,6 +600,8 @@ void MainWindow::setupToolbar()
     // Create toolbar
     QToolBar *toolbar = addToolBar(tr("Main Toolbar"));
     toolbar->setMovable(false);
+    toolbar->setIconSize(QSize(24, 24)); // Standard icon size
+    toolbar->setMaximumHeight(45); // Standard toolbar height
     
     // Start/Stop button
     m_startStopAction = new QAction(QIcon(":/png/start.png"), tr("Start"), this);
@@ -551,9 +609,12 @@ void MainWindow::setupToolbar()
     toolbar->addAction(m_startStopAction);
     
     // Interface selection
-    toolbar->addWidget(new QLabel(tr("Interface:"), this));
+    QLabel *interfaceLabel = new QLabel(tr("Interface:"), this);
+    interfaceLabel->setMaximumWidth(80);
+    toolbar->addWidget(interfaceLabel);
     m_interfaceCombo = new QComboBox(this);
     m_interfaceCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    m_interfaceCombo->setMaximumWidth(200); // Standard width
     toolbar->addWidget(m_interfaceCombo);
     
     toolbar->addSeparator();

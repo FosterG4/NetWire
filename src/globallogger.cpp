@@ -167,7 +167,7 @@ void GlobalLogger::warning(const QString& message, const QString& function, cons
 
 void GlobalLogger::error(const QString& message, const QString& function, const QString& file, int line)
 {
-    log(LogLevel::ERROR, message, function, file, line);
+    log(LogLevel::ERROR_LEVEL, message, function, file, line);
 }
 
 void GlobalLogger::critical(const QString& message, const QString& function, const QString& file, int line)
@@ -354,7 +354,7 @@ QString GlobalLogger::levelToString(LogLevel level)
         case LogLevel::DEBUG: return "DEBUG";
         case LogLevel::INFO: return "INFO";
         case LogLevel::WARNING: return "WARN";
-        case LogLevel::ERROR: return "ERROR";
+        case LogLevel::ERROR_LEVEL: return "ERROR";
         case LogLevel::CRITICAL: return "CRIT";
         case LogLevel::FATAL: return "FATAL";
         default: return "UNKNOWN";

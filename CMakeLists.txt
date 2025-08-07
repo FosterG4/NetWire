@@ -80,9 +80,9 @@ include_directories(${Qt6Network_INCLUDE_DIRS})
 include_directories(${Qt6Charts_INCLUDE_DIRS})
 
 # libpcap configuration for Windows
-# vcpkg toolchain will be set via command line
+# Try multiple methods to find packet capture library
 
-# Try to find libpcap package using vcpkg
+# Method 1: Try to find libpcap package using vcpkg
 find_package(libpcap CONFIG QUIET)
 
 if(libpcap_FOUND)
@@ -93,28 +93,84 @@ if(libpcap_FOUND)
     add_definitions(-DHAVE_PCAP)
     message(STATUS "Found libpcap via vcpkg: ${PCAP_LIBRARIES}")
 else()
-    # Fallback to traditional find_package
-    find_package(libpcap QUIET)
-    if(libpcap_FOUND)
-        set(PCAP_INCLUDE_DIRS "")
-        set(PCAP_LIBRARIES libpcap)
+    # Method 2: Try to find Npcap (Windows packet capture library)
+    find_path(NPCAP_INCLUDE_DIR pcap.h
+        PATHS
+        "C:/Program Files/Npcap/SDK/Include"
+        "C:/Program Files (x86)/Npcap/SDK/Include"
+        "C:/Npcap/SDK/Include"
+        "C:/Program Files/WpdPack/Include"
+        "C:/Program Files (x86)/WpdPack/Include"
+        DOC "Npcap include directory"
+    )
+    
+    find_library(NPCAP_LIBRARY
+        NAMES wpcap pcap
+        PATHS
+        "C:/Program Files/Npcap/SDK/Lib/x64"
+        "C:/Program Files (x86)/Npcap/SDK/Lib/x64"
+        "C:/Npcap/SDK/Lib/x64"
+        "C:/Program Files/WpdPack/Lib/x64"
+        "C:/Program Files (x86)/WpdPack/Lib/x64"
+        DOC "Npcap library"
+    )
+    
+    if(NPCAP_INCLUDE_DIR AND NPCAP_LIBRARY)
+        set(PCAP_INCLUDE_DIRS "${NPCAP_INCLUDE_DIR}")
+        set(PCAP_LIBRARIES "${NPCAP_LIBRARY}")
         set(PCAP_FOUND TRUE)
         add_definitions(-DHAVE_PCAP)
-        message(STATUS "Found libpcap via traditional find_package: ${PCAP_LIBRARIES}")
+        message(STATUS "Found Npcap: ${PCAP_LIBRARIES}")
     else()
-        # Manual fallback for vcpkg installed libpcap
-        set(PCAP_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/installed/x64-windows/include")
-        set(PCAP_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/installed/x64-windows/lib/pcap.lib")
-        if(EXISTS ${PCAP_LIBRARIES})
+        # Method 3: Fallback to traditional find_package
+        find_package(libpcap QUIET)
+        if(libpcap_FOUND)
+            set(PCAP_INCLUDE_DIRS "")
+            set(PCAP_LIBRARIES libpcap)
             set(PCAP_FOUND TRUE)
             add_definitions(-DHAVE_PCAP)
-            message(STATUS "Found libpcap manually: ${PCAP_LIBRARIES}")
+            message(STATUS "Found libpcap via traditional find_package: ${PCAP_LIBRARIES}")
         else()
-            message(WARNING "libpcap not found. Network monitoring features will be disabled.")
-            # Set empty variables to avoid build errors
-            set(PCAP_INCLUDE_DIRS "")
-            set(PCAP_LIBRARIES "")
-            set(PCAP_FOUND FALSE)
+            # Method 4: Manual fallback for vcpkg installed libpcap
+            set(PCAP_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/installed/x64-windows/include")
+            set(PCAP_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/installed/x64-windows/lib/pcap.lib")
+            if(EXISTS ${PCAP_LIBRARIES})
+                set(PCAP_FOUND TRUE)
+                add_definitions(-DHAVE_PCAP)
+                message(STATUS "Found libpcap manually: ${PCAP_LIBRARIES}")
+            else()
+                # Method 5: Try to find WinPcap (older Windows packet capture)
+                find_path(WINPCAP_INCLUDE_DIR pcap.h
+                    PATHS
+                    "C:/Program Files/WinPcap/Include"
+                    "C:/Program Files (x86)/WinPcap/Include"
+                    DOC "WinPcap include directory"
+                )
+                
+                find_library(WINPCAP_LIBRARY
+                    NAMES wpcap
+                    PATHS
+                    "C:/Program Files/WinPcap/Lib"
+                    "C:/Program Files (x86)/WinPcap/Lib"
+                    DOC "WinPcap library"
+                )
+                
+                if(WINPCAP_INCLUDE_DIR AND WINPCAP_LIBRARY)
+                    set(PCAP_INCLUDE_DIRS "${WINPCAP_INCLUDE_DIR}")
+                    set(PCAP_LIBRARIES "${WINPCAP_LIBRARY}")
+                    set(PCAP_FOUND TRUE)
+                    add_definitions(-DHAVE_PCAP)
+                    message(STATUS "Found WinPcap: ${PCAP_LIBRARIES}")
+                else()
+                    message(WARNING "No packet capture library found (libpcap/Npcap/WinPcap).")
+                    message(WARNING "Network monitoring features will be disabled.")
+                    message(WARNING "To enable network monitoring, install Npcap from: https://npcap.com/")
+                    # Set empty variables to avoid build errors
+                    set(PCAP_INCLUDE_DIRS "")
+                    set(PCAP_LIBRARIES "")
+                    set(PCAP_FOUND FALSE)
+                endif()
+            endif()
         endif()
     endif()
 endif()
@@ -191,6 +247,13 @@ endif()
 # Only include pcap directories if found
 if(PCAP_FOUND)
     target_include_directories(NetWire PRIVATE ${PCAP_INCLUDE_DIRS})
+    message(STATUS "Network monitoring enabled with packet capture library")
+else()
+    message(STATUS "Network monitoring disabled - no packet capture library found")
+    message(STATUS "To enable network monitoring:")
+    message(STATUS "  1. Download Npcap from: https://npcap.com/")
+    message(STATUS "  2. Install with SDK option enabled")
+    message(STATUS "  3. Rebuild the project")
 endif()
 
 # Include directories
