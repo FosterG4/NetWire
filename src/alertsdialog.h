@@ -21,12 +21,29 @@ public:
     explicit AlertsDialog(QWidget *parent = nullptr);
     ~AlertsDialog();
 
+    // Column indices
+    enum AlertColumns {
+        ColId,
+        ColSeverity,
+        ColType,
+        ColTitle,
+        ColSource,
+        ColDestination,
+        ColTimestamp,
+        ColAcknowledged,
+        ColAlertData, // Hidden column to store the full alert object
+        ColCount
+    };
+
     void setAlertManager(AlertManager *manager);
     void updateAlerts();
 
 protected:
     void showEvent(QShowEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+
+signals:
+    void alertReceived(const AlertManager::Alert &alert);
 
 private slots:
     void onNewAlert(const AlertManager::Alert &alert);
@@ -55,6 +72,7 @@ private:
     QHash<int, AlertManager::Alert> m_alertMap;
     
     void setupUi();
+    void setupModels();
     void setupConnections();
     void updateActiveAlerts();
     void updateAlertHistory();
@@ -69,20 +87,6 @@ private:
     static QString alertTypeToString(AlertManager::AlertType type);
     static QString alertSeverityToString(AlertManager::Severity severity);
     static QString formatBytes(qint64 bytes);
-    
-    // Column indices
-    enum AlertColumns {
-        ColId,
-        ColSeverity,
-        ColType,
-        ColTitle,
-        ColSource,
-        ColDestination,
-        ColTimestamp,
-        ColAcknowledged,
-        ColAlertData, // Hidden column to store the full alert object
-        ColCount
-    };
 };
 
 #endif // ALERTSDIALOG_H

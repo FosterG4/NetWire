@@ -171,13 +171,13 @@ void AlertSettingsDialog::setupUi()
     ui->spinDataExfiltration->setToolTip(tr("Alert when data upload exceeds this threshold (KB)"));
     
     // Set up tab icons
-    ui->tabWidget->setTabIcon(0, QIcon(":/icons/sliders.png"));
-    ui->tabWidget->setTabIcon(1, QIcon(":/icons/alert.png"));
+    ui->tabWidget->setTabIcon(0, QIcon(":/resources/icons/png/sliders.png"));
+    ui->tabWidget->setTabIcon(1, QIcon(":/resources/icons/png/alert.png"));
     
     // Set up button box
-    ui->buttonBox->button(QDialogButtonBox::RestoreDefaults)->setIcon(QIcon(":/icons/refresh.png"));
-    ui->buttonBox->button(QDialogButtonBox::Ok)->setIcon(QIcon(":/icons/check.png"));
-    ui->buttonBox->button(QDialogButtonBox::Cancel)->setIcon(QIcon(":/icons/close.png"));
+    ui->buttonBox->button(QDialogButtonBox::RestoreDefaults)->setIcon(QIcon(":/resources/icons/png/refresh.png"));
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setIcon(QIcon(":/resources/icons/png/check.png"));
+    ui->buttonBox->button(QDialogButtonBox::Cancel)->setIcon(QIcon(":/resources/icons/png/close.png"));
 }
 
 void AlertSettingsDialog::setupConnections()

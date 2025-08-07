@@ -182,7 +182,7 @@ void FirewallRulesDialog::showRuleDetails(const FirewallManager::FirewallRule &r
         }
     }
     
-    details += QString("<b>%1:</b> %2<br>").arg(tr("Protocol")).arg([rule]() {
+    details += QString("<b>%1:</b> %2<br>").arg(tr("Protocol")).arg([rule]() -> QString {
         switch (rule.protocol) {
         case FirewallManager::TCP: return "TCP";
         case FirewallManager::UDP: return "UDP";

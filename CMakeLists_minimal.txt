@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.20)
+project(NetWireMinimal VERSION 0.1.0 LANGUAGES CXX)
+
+# Set Qt6 installation path
+set(QT_ROOT "C:/Qt/6.9.1/msvc2022_64" CACHE PATH "Path to Qt6 installation")
+set(Qt6_DIR "${QT_ROOT}/lib/cmake/Qt6" CACHE PATH "Path to Qt6 CMake configuration" FORCE)
+set(CMAKE_PREFIX_PATH "${QT_ROOT}" CACHE STRING "" FORCE)
+
+# C++ Standard
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+
+# Find Qt6 package with required components
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
+
+# Add executable
+add_executable(NetWireMinimal
+    src/main_minimal.cpp
+)
+
+# Link libraries
+target_link_libraries(NetWireMinimal PRIVATE
+    Qt6::Core
+    Qt6::Widgets
+)

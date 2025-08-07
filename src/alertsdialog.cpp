@@ -79,9 +79,6 @@ AlertsDialog::AlertsDialog(QWidget *parent) :
     // Restore window state
     QSettings settings("NetWire", "NetWire");
     restoreGeometry(settings.value("AlertsDialog/geometry").toByteArray());
-    if (ui->splitter) {
-        ui->splitter->restoreState(settings.value("AlertsDialog/splitterState").toByteArray());
-    }
 }
 
 AlertsDialog::~AlertsDialog()
@@ -89,7 +86,6 @@ AlertsDialog::~AlertsDialog()
     // Save window state
     QSettings settings("NetWire", "NetWire");
     settings.setValue("AlertsDialog/geometry", saveGeometry());
-    settings.setValue("AlertsDialog/splitterState", ui->splitter->saveState());
     
     delete ui;
 }
@@ -151,7 +147,6 @@ void AlertsDialog::closeEvent(QCloseEvent *event)
     // Save window state
     QSettings settings("NetWire", "NetWire");
     settings.setValue("AlertsDialog/geometry", saveGeometry());
-    settings.setValue("AlertsDialog/splitterState", ui->splitter->saveState());
     
     QDialog::closeEvent(event);
 }
@@ -222,9 +217,9 @@ void AlertsDialog::setupModels()
 void AlertsDialog::setupUi()
 {
     // Set up icons
-    ui->btnAcknowledge->setIcon(QIcon(":/icons/check.png"));
-    ui->btnClear->setIcon(QIcon(":/icons/delete.png"));
-    ui->btnClearAll->setIcon(QIcon(":/icons/delete_all.png"));
+    ui->btnAcknowledge->setIcon(QIcon(":/resources/icons/png/check.png"));
+    ui->btnClear->setIcon(QIcon(":/resources/icons/png/delete.png"));
+    ui->btnClearAll->setIcon(QIcon(":/resources/icons/png/delete_all.png"));
     
     // Set up filter placeholders
     ui->txtFilter->setPlaceholderText(tr("Filter alerts..."));
@@ -236,8 +231,8 @@ void AlertsDialog::setupUi()
     ui->btnClearAll->setToolTip(tr("Clear all alerts"));
     
     // Set up tab icons
-    ui->tabWidget->setTabIcon(0, QIcon(":/icons/alert.png"));
-    ui->tabWidget->setTabIcon(1, QIcon(":/icons/history.png"));
+    ui->tabWidget->setTabIcon(0, QIcon(":/resources/icons/png/alert.png"));
+    ui->tabWidget->setTabIcon(1, QIcon(":/resources/icons/png/history.png"));
 }
 
 void AlertsDialog::setupConnections()
@@ -319,9 +314,13 @@ QList<QStandardItem*> AlertsDialog::createAlertRow(const AlertManager::Alert &al
 {
     QList<QStandardItem*> row;
     
+    // Create a unique ID using a hash of the alert's title and timestamp
+    QString uniqueId = QString("%1-%2").arg(alert.title).arg(alert.timestamp.toMSecsSinceEpoch());
+    uint id = qHash(uniqueId);
+    
     // ID
-    QStandardItem *idItem = new QStandardItem(QString::number(alert.id));
-    idItem->setData(alert.id, Qt::UserRole);
+    QStandardItem *idItem = new QStandardItem(QString::number(id));
+    idItem->setData(id, Qt::UserRole);
     
     // Severity with icon
     QStandardItem *severityItem = new QStandardItem();
@@ -330,19 +329,19 @@ QList<QStandardItem*> AlertsDialog::createAlertRow(const AlertManager::Alert &al
     // Set icon based on severity
     switch (alert.severity) {
     case AlertManager::Info:
-        severityItem->setIcon(QIcon(":/icons/info.png"));
+        severityItem->setIcon(QIcon(":/resources/icons/png/info.png"));
         break;
     case AlertManager::Low:
-        severityItem->setIcon(QIcon(":/icons/info_blue.png"));
+        severityItem->setIcon(QIcon(":/resources/icons/png/info_blue.png"));
         break;
     case AlertManager::Medium:
-        severityItem->setIcon(QIcon(":/icons/warning.png"));
+        severityItem->setIcon(QIcon(":/resources/icons/png/warning.png"));
         break;
     case AlertManager::High:
-        severityItem->setIcon(QIcon(":/icons/error.png"));
+        severityItem->setIcon(QIcon(":/resources/icons/png/error.png"));
         break;
     case AlertManager::Critical:
-        severityItem->setIcon(QIcon(":/icons/critical.png"));
+        severityItem->setIcon(QIcon(":/resources/icons/png/critical.png"));
         break;
     }
     
@@ -435,8 +434,8 @@ void AlertsDialog::onThresholdReached(AlertManager::AlertType type, const QStrin
 {
     Q_UNUSED(type);
     
-    // Show a status bar message or tooltip
-    statusBar()->showMessage(message, 5000);
+    // Show the message in a message box since we don't have a status bar
+    QMessageBox::information(this, tr("Alert Threshold Reached"), message);
 }
 
 void AlertsDialog::on_tabWidget_currentChanged(int index)
@@ -554,13 +553,13 @@ void AlertsDialog::showContextMenu(const QPoint &pos)
     QMenu menu(this);
     
     // Common actions
-    QAction *detailsAction = menu.addAction(QIcon(":/icons/info.png"), tr("View Details"));
+    QAction *detailsAction = menu.addAction(QIcon(":/resources/icons/png/info.png"), tr("View Details"));
     menu.addSeparator();
     
     // Active alerts specific actions
     if (tableView == ui->tblAlerts) {
-        QAction *ackAction = menu.addAction(QIcon(":/icons/check.png"), tr("Acknowledge"));
-        QAction *clearAction = menu.addAction(QIcon(":/icons/delete.png"), tr("Clear"));
+        QAction *ackAction = menu.addAction(QIcon(":/resources/icons/png/check.png"), tr("Acknowledge"));
+        QAction *clearAction = menu.addAction(QIcon(":/resources/icons/png/delete.png"), tr("Clear"));
         
         // Connect actions using new-style connect syntax
         connect(detailsAction, &QAction::triggered, this, [this]() { this->showAlertDetails(); });
@@ -568,7 +567,7 @@ void AlertsDialog::showContextMenu(const QPoint &pos)
         connect(clearAction, &QAction::triggered, this, [this]() { this->clearSelected(); });
     } else {
         // History specific actions
-        QAction *copyAction = menu.addAction(QIcon(":/icons/copy.png"), tr("Copy to Clipboard"));
+        QAction *copyAction = menu.addAction(QIcon(":/resources/icons/png/copy.png"), tr("Copy to Clipboard"));
         
         // Connect actions using new-style connect syntax
         connect(detailsAction, &QAction::triggered, this, [this]() { this->showAlertDetails(); });
@@ -637,7 +636,7 @@ void AlertsDialog::showAlertDetails(const AlertManager::Alert &alert)
 {
     QDialog *dialog = new QDialog(this);
     dialog->setWindowTitle(tr("Alert Details"));
-    dialog->setWindowIcon(QIcon(":/icons/info.png"));
+    dialog->setWindowIcon(QIcon(":/resources/icons/png/info.png"));
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->resize(500, 400);
     
@@ -743,7 +742,7 @@ void AlertsDialog::showAlertDetails(const AlertManager::Alert &alert)
     dialog->exec();
 }
 
-static QString alertTypeToString(AlertManager::AlertType type)
+QString AlertsDialog::alertTypeToString(AlertManager::AlertType type)
 {
     switch (type) {
     case AlertManager::NewAppDetected: return QObject::tr("New Application Detected");
@@ -759,7 +758,7 @@ static QString alertTypeToString(AlertManager::AlertType type)
     }
 }
 
-static QString alertSeverityToString(AlertManager::Severity severity)
+QString AlertsDialog::alertSeverityToString(AlertManager::Severity severity)
 {
     switch (severity) {
     case AlertManager::Info: return QObject::tr("Info");
@@ -771,7 +770,7 @@ static QString alertSeverityToString(AlertManager::Severity severity)
     }
 }
 
-static QString formatBytes(qint64 bytes)
+QString AlertsDialog::formatBytes(qint64 bytes)
 {
     const char *suffixes[] = {"B", "KB", "MB", "GB", "TB"};
     int i = 0;
