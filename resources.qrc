@@ -15,9 +15,10 @@
     </qresource>
     
     <!-- Aliased resources for backward compatibility -->
-    <qresource prefix="/png">
+    <qresource prefix="/">
         <file>resources/icons/png/refresh.png</file>
-        <file>resources/icons/png/alert.png</file>
-        <file>resources/icons/png/firewall.png</file>
+        <!-- Provide alert and firewall via SVG with PNG aliases -->
+        <file alias="png/alert.png">resources/icons/alert.svg</file>
+        <file alias="png/firewall.png">resources/icons/firewall.svg</file>
     </qresource>
 </RCC>

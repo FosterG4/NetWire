@@ -20,6 +20,9 @@ public:
     // Getters for the current configuration
     AlertManager::ThresholdConfig thresholdConfig() const;
     bool isAlertTypeEnabled(AlertManager::AlertType type) const;
+    
+    // Setter for alert manager
+    void setAlertManager(AlertManager *alertManager);
 
 private slots:
     void on_buttonBox_accepted();

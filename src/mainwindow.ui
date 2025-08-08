@@ -6,86 +6,772 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1024</width>
-    <height>768</height>
+    <width>800</width>
+    <height>600</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>NetWire - Network Monitor</string>
   </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow {
+    background-color: #f5f5f5;
+    color: #333333;
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+QWidget {
+    color: #333333;
+}
+QGroupBox {
+    font-weight: bold;
+    font-size: 14px;
+    border: 2px solid #cccccc;
+    border-radius: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    background-color: #ffffff;
+    color: #333333;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 16px;
+    padding: 0 12px 0 12px;
+    color: #2c3e50;
+    font-weight: bold;
+}
+QTableWidget {
+    border: 1px solid #cccccc;
+    border-radius: 6px;
+    gridline-color: #e0e0e0;
+    background-color: #ffffff;
+    alternate-background-color: #f9f9f9;
+    selection-background-color: #3498db;
+    selection-color: #ffffff;
+    font-size: 12px;
+    color: #333333;
+}
+QTableWidget::item {
+    padding: 8px;
+    border-bottom: 1px solid #e0e0e0;
+}
+QTableWidget::item:selected {
+    background-color: #3498db;
+    color: #ffffff;
+    font-weight: bold;
+}
+QHeaderView::section {
+    background-color: #f8f9fa;
+    padding: 12px 8px;
+    border: none;
+    border-bottom: 2px solid #3498db;
+    font-weight: bold;
+    font-size: 12px;
+    color: #2c3e50;
+}
+QPushButton {
+    background-color: #3498db;
+    color: #ffffff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: 13px;
+    min-height: 20px;
+}
+QPushButton:hover {
+    background-color: #2980b9;
+}
+QPushButton:pressed {
+    background-color: #1f5f8b;
+}
+QPushButton:disabled {
+    background-color: #bdc3c7;
+    color: #7f8c8d;
+}
+QLineEdit {
+    border: 1px solid #cccccc;
+    border-radius: 6px;
+    padding: 8px 12px;
+    background-color: #ffffff;
+    font-size: 13px;
+    color: #333333;
+}
+QLineEdit:focus {
+    border-color: #3498db;
+}
+QComboBox {
+    border: 1px solid #cccccc;
+    border-radius: 6px;
+    padding: 8px 12px;
+    background-color: #ffffff;
+    font-size: 13px;
+    min-height: 20px;
+    color: #333333;
+}
+QComboBox:focus {
+    border-color: #3498db;
+}
+QLabel {
+    color: #333333;
+    font-size: 13px;
+}
+QLabel[class="title"] {
+    font-size: 24px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+QLabel[class="download"] {
+    color: #27ae60;
+    font-weight: bold;
+}
+QLabel[class="upload"] {
+    color: #e74c3c;
+    font-weight: bold;
+}
+QLabel[class="total"] {
+    color: #3498db;
+    font-weight: bold;
+    font-size: 18px;
+}
+QProgressBar {
+    border: 1px solid #cccccc;
+    border-radius: 6px;
+    text-align: center;
+    background-color: #f8f9fa;
+    font-weight: bold;
+    font-size: 11px;
+    min-height: 8px;
+    color: #333333;
+}
+QProgressBar::chunk {
+    background-color: #3498db;
+    border-radius: 4px;
+}
+QChartView {
+    border: 1px solid #cccccc;
+    border-radius: 8px;
+    background-color: #ffffff;
+}
+QTabWidget::pane {
+    border: 1px solid #cccccc;
+    background-color: #ffffff;
+    border-radius: 8px;
+    margin-top: 4px;
+}
+QTabBar::tab {
+    background-color: #f8f9fa;
+    color: #666666;
+    padding: 12px 24px;
+    margin-right: 4px;
+    border: 1px solid #cccccc;
+    border-radius: 6px 6px 0 0;
+    font-weight: bold;
+    font-size: 13px;
+    min-width: 120px;
+}
+QTabBar::tab:selected {
+    background-color: #3498db;
+    color: #ffffff;
+}
+QTabBar::tab:hover:!selected {
+    background-color: #e8f4fd;
+    color: #3498db;
+}
+QStatusBar {
+    background-color: #f8f9fa;
+    color: #666666;
+    border-top: 1px solid #cccccc;
+}</string>
+  </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>16</number>
+    </property>
+    <property name="leftMargin">
+     <number>16</number>
+    </property>
+    <property name="topMargin">
+     <number>16</number>
+    </property>
+    <property name="rightMargin">
+     <number>16</number>
+    </property>
+    <property name="bottomMargin">
+     <number>16</number>
+    </property>
     <item>
-     <widget class="QTabWidget" name="tabWidget">
+     <!-- Header -->
+     <widget class="QWidget" name="headerWidget">
+      <layout class="QHBoxLayout" name="headerLayout">
+       <item>
+        <widget class="QLabel" name="titleLabel">
+         <property name="text">
+          <string>NetWire</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font-size: 24px; font-weight: bold; color: #2c3e50;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="horizontalSpacer">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="startStopButton">
+         <property name="text">
+          <string>Start Monitoring</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <!-- Traffic Summary -->
+     <widget class="QGroupBox" name="trafficSummaryGroup">
+      <property name="title">
+       <string>Traffic Summary</string>
+      </property>
+      <layout class="QHBoxLayout" name="trafficSummaryLayout">
+       <item>
+        <widget class="QWidget" name="downloadWidget">
+         <layout class="QVBoxLayout" name="downloadLayout">
+          <item>
+           <widget class="QLabel" name="downloadLabel">
+            <property name="text">
+             <string>Download</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-weight: bold; color: #27ae60;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="downloadTotalLabel">
+            <property name="text">
+             <string>0 KB</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-size: 18px; font-weight: bold; color: #27ae60;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="downloadRateLabel">
+            <property name="text">
+             <string>↓ 0 KB/s</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #666666; font-size: 12px;</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="uploadWidget">
+         <layout class="QVBoxLayout" name="uploadLayout">
+          <item>
+           <widget class="QLabel" name="uploadLabel">
+            <property name="text">
+             <string>Upload</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-weight: bold; color: #e74c3c;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="uploadTotalLabel">
+            <property name="text">
+             <string>0 KB</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-size: 18px; font-weight: bold; color: #e74c3c;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="uploadRateLabel">
+            <property name="text">
+             <string>↑ 0 KB/s</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: #666666; font-size: 12px;</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="totalWidget">
+         <layout class="QVBoxLayout" name="totalLayout">
+          <item>
+           <widget class="QLabel" name="totalLabel">
+            <property name="text">
+             <string>Total</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-weight: bold; color: #3498db; font-size: 16px;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="totalValueLabel">
+            <property name="text">
+             <string>0 KB</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-size: 20px; font-weight: bold; color: #3498db;</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <!-- Main Content Tabs -->
+     <widget class="QTabWidget" name="mainTabWidget">
       <property name="currentIndex">
        <number>0</number>
       </property>
-      <widget class="QWidget" name="tabDashboard">
+      <!-- Traffic Monitor Tab -->
+      <widget class="QWidget" name="trafficMonitorTab">
        <attribute name="title">
-        <string>Dashboard</string>
+        <string>📊 Traffic Monitor</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_2">
+       <layout class="QVBoxLayout" name="trafficMonitorLayout">
         <item>
-         <widget class="QChartView" name="trafficChartView" native="true">
+         <!-- Control Bar -->
+         <widget class="QWidget" name="controlBar">
+          <layout class="QHBoxLayout" name="controlBarLayout">
+           <item>
+            <widget class="QLabel" name="filterLabel">
+             <property name="text">
+              <string>Filter:</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="filterCombo">
+             <property name="minimumSize">
+              <size>
+               <width>120</width>
+               <height>0</height>
+              </size>
+             </property>
+             <item>
+              <property name="text">
+               <string>All Traffic</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>WAN Only</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>LAN Only</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="searchBox">
+             <property name="minimumSize">
+              <size>
+               <width>200</width>
+               <height>0</height>
+              </size>
+             </property>
+             <property name="placeholderText">
+              <string>Search applications or hosts...</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="refreshButton">
+             <property name="text">
+              <string>Refresh</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="horizontalSpacer_2">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <!-- Speed Indicators -->
+         <widget class="QWidget" name="speedIndicators">
+          <layout class="QHBoxLayout" name="speedIndicatorsLayout">
+           <item>
+            <widget class="QWidget" name="downloadIndicator">
+             <layout class="QVBoxLayout" name="downloadIndicatorLayout">
+              <item>
+               <widget class="QLabel" name="downloadValueLabel">
+                <property name="text">
+                 <string>10.2 MB</string>
+                </property>
+                <property name="styleSheet">
+                 <string notr="true">font-size: 20px; font-weight: 700;</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="downloadRateSmallLabel">
+                <property name="text">
+                 <string>↓ 36 KB/s</string>
+                </property>
+                <property name="styleSheet">
+                 <string notr="true">color: #666666;</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <spacer name="speedSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QWidget" name="uploadIndicator">
+             <layout class="QVBoxLayout" name="uploadIndicatorLayout">
+              <item>
+               <widget class="QLabel" name="uploadValueLabel">
+                <property name="text">
+                 <string>1.9 MB</string>
+                </property>
+                <property name="styleSheet">
+                 <string notr="true">font-size: 20px; font-weight: 700;</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="uploadRateSmallLabel">
+                <property name="text">
+                 <string>↑ 42 KB/s</string>
+                </property>
+                <property name="styleSheet">
+                 <string notr="true">color: #666666;</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <!-- Data Columns (Domains / Traffic Type / Country) -->
+         <widget class="QGroupBox" name="dataColumnsGroup">
+          <property name="title">
+           <string>At a Glance</string>
+          </property>
+          <layout class="QHBoxLayout" name="dataColumnsLayout">
+           <item>
+            <widget class="QGroupBox" name="domainsGroup">
+             <property name="title">
+              <string>Domains</string>
+             </property>
+             <layout class="QVBoxLayout" name="domainsLayout">
+              <item>
+               <widget class="QListWidget" name="domainsList"/>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="trafficTypeGroup">
+             <property name="title">
+              <string>Traffic Type</string>
+             </property>
+             <layout class="QVBoxLayout" name="trafficTypeLayout">
+              <item>
+               <widget class="QListWidget" name="trafficTypeList"/>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="countryGroup">
+             <property name="title">
+              <string>Country</string>
+             </property>
+             <layout class="QVBoxLayout" name="countryLayout">
+              <item>
+               <widget class="QListWidget" name="countryList"/>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <!-- Traffic Chart -->
+         <widget class="QGroupBox" name="trafficChartGroup">
+          <property name="title">
+           <string>Real-Time Traffic</string>
+          </property>
           <property name="minimumSize">
            <size>
             <width>0</width>
             <height>200</height>
            </size>
           </property>
+          <layout class="QVBoxLayout" name="trafficChartLayout">
+           <item>
+            <widget class="QChartView" name="trafficChartView">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>180</height>
+              </size>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </widget>
         </item>
         <item>
-         <widget class="QTableWidget" name="networkTable">
-          <column>
-           <property name="text">
-            <string>Application</string>
-           </property>
-          </column>
-          <column>
-           <property name="text">
-            <string>Download</string>
-           </property>
-          </column>
-          <column>
-           <property name="text">
-            <string>Upload</string>
-           </property>
-          </column>
+         <!-- Applications Table -->
+         <widget class="QGroupBox" name="applicationsGroup">
+          <property name="title">
+           <string>Applications</string>
+          </property>
+          <layout class="QVBoxLayout" name="applicationsLayout">
+           <item>
+            <widget class="QTableWidget" name="applicationsTable">
+             <property name="alternatingRowColors">
+              <bool>true</bool>
+             </property>
+             <property name="selectionBehavior">
+              <enum>QAbstractItemView::SelectRows</enum>
+             </property>
+             <property name="sortingEnabled">
+              <bool>true</bool>
+             </property>
+             <column>
+              <property name="text">
+               <string>Application</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Download</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Upload</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Total</string>
+              </property>
+             </column>
+            </widget>
+           </item>
+          </layout>
          </widget>
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="tabFirewall">
+      <!-- Connections Tab -->
+      <widget class="QWidget" name="connectionsTab">
        <attribute name="title">
-        <string>Firewall</string>
+        <string>Connections</string>
        </attribute>
+       <layout class="QVBoxLayout" name="connectionsLayout">
+        <item>
+         <widget class="QGroupBox" name="connectionsGroup">
+          <property name="title">
+           <string>Active Connections</string>
+          </property>
+          <layout class="QVBoxLayout" name="connectionsGroupLayout">
+           <item>
+            <widget class="QTableWidget" name="connectionsTable">
+             <property name="alternatingRowColors">
+              <bool>true</bool>
+             </property>
+             <property name="selectionBehavior">
+              <enum>QAbstractItemView::SelectRows</enum>
+             </property>
+             <property name="sortingEnabled">
+              <bool>true</bool>
+             </property>
+             <column>
+              <property name="text">
+               <string>Local Address</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Remote Address</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Protocol</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Status</string>
+              </property>
+             </column>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
       </widget>
-      <widget class="QWidget" name="tabSettings">
+      <!-- Settings Tab -->
+      <widget class="QWidget" name="settingsTab">
        <attribute name="title">
         <string>Settings</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_3">
+       <layout class="QVBoxLayout" name="settingsLayout">
         <item>
-         <widget class="QGroupBox" name="groupBox">
+         <widget class="QGroupBox" name="monitoringGroup">
           <property name="title">
-           <string>Network Interface</string>
+           <string>Monitoring Settings</string>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_4">
+          <layout class="QVBoxLayout" name="monitoringLayout">
            <item>
-            <widget class="QComboBox" name="interfaceComboBox">
-             <item>
-              <property name="text">
-               <string>Select Network Interface</string>
-              </property>
-             </item>
+            <widget class="QWidget" name="updateIntervalWidget">
+             <layout class="QHBoxLayout" name="updateIntervalLayout">
+              <item>
+               <widget class="QLabel" name="updateIntervalLabel">
+                <property name="text">
+                 <string>Update Interval:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="updateIntervalCombo">
+                <item>
+                 <property name="text">
+                  <string>1 Second</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>5 Seconds</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>10 Seconds</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+             </layout>
             </widget>
            </item>
            <item>
-            <widget class="QPushButton" name="startButton">
-             <property name="text">
-              <string>Start Monitoring</string>
-             </property>
+            <widget class="QWidget" name="autoStartWidget">
+             <layout class="QHBoxLayout" name="autoStartLayout">
+              <item>
+               <widget class="QLabel" name="autoStartLabel">
+                <property name="text">
+                 <string>Auto-start monitoring:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="autoStartCheckBox">
+                <property name="text">
+                 <string>Enable</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="displayGroup">
+          <property name="title">
+           <string>Display Settings</string>
+          </property>
+          <layout class="QVBoxLayout" name="displayLayout">
+           <item>
+            <widget class="QWidget" name="themeWidget">
+             <layout class="QHBoxLayout" name="themeLayout">
+              <item>
+               <widget class="QLabel" name="themeLabel">
+                <property name="text">
+                 <string>Theme:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="themeCombo">
+                <item>
+                 <property name="text">
+                  <string>Light</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Dark</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+             </layout>
             </widget>
            </item>
           </layout>
@@ -106,15 +792,166 @@
         </item>
        </layout>
       </widget>
+      <!-- Netwire Protect Tab -->
+      <widget class="QWidget" name="protectTab">
+       <attribute name="title">
+        <string>🛡️ Netwire Protect</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="protectLayout">
+        <item>
+         <widget class="QGroupBox" name="firewallControlsGroup">
+          <property name="title">
+           <string>Firewall Controls</string>
+          </property>
+          <layout class="QHBoxLayout" name="firewallControlsLayout">
+           <item>
+            <widget class="QCheckBox" name="firewallEnabledCheck">
+             <property name="text">
+              <string>Firewall Enabled</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="firewallModeCombo">
+             <item><property name="text"><string>Allow All</string></property></item>
+             <item><property name="text"><string>Block All</string></property></item>
+             <item><property name="text"><string>Smart</string></property></item>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="firewallProfileCombo">
+             <item><property name="text"><string>Home</string></property></item>
+             <item><property name="text"><string>Work</string></property></item>
+             <item><property name="text"><string>Public</string></property></item>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="rulesGroup">
+          <property name="title">
+           <string>Rules</string>
+          </property>
+          <layout class="QVBoxLayout" name="rulesLayout">
+           <item>
+            <widget class="QTableWidget" name="rulesTable">
+             <column><property name="text"><string>Enabled</string></property></column>
+             <column><property name="text"><string>Application</string></property></column>
+             <column><property name="text"><string>Protocol</string></property></column>
+             <column><property name="text"><string>Port</string></property></column>
+             <column><property name="text"><string>Action</string></property></column>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <!-- Log Analysis Tab -->
+      <widget class="QWidget" name="logsTab">
+       <attribute name="title">
+        <string>⚠️ Log Analysis</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="logsLayout">
+        <item>
+         <widget class="QGroupBox" name="logsGroup">
+          <property name="title">
+           <string>Recent Events</string>
+          </property>
+          <layout class="QVBoxLayout" name="logsGroupLayout">
+           <item>
+            <widget class="QListWidget" name="logsList"/>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <!-- Network Scanner Tab -->
+      <widget class="QWidget" name="scannerTab">
+       <attribute name="title">
+        <string>🔍 Network Scanner</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="scannerLayout">
+        <item>
+         <widget class="QGroupBox" name="scannerControlsGroup">
+          <property name="title">
+           <string>Controls</string>
+          </property>
+          <layout class="QHBoxLayout" name="scannerControlsLayout">
+           <item>
+            <widget class="QPushButton" name="scanButton">
+             <property name="text"><string>Scan</string></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="autoScanCheck">
+             <property name="text"><string>Auto-scan</string></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="devicesGroup">
+          <property name="title">
+           <string>Devices</string>
+          </property>
+          <layout class="QVBoxLayout" name="devicesLayout">
+           <item>
+            <widget class="QTableWidget" name="devicesTable">
+             <column><property name="text"><string>Name</string></property></column>
+             <column><property name="text"><string>Vendor</string></property></column>
+             <column><property name="text"><string>IP</string></property></column>
+             <column><property name="text"><string>MAC</string></property></column>
+             <column><property name="text"><string>Last Seen</string></property></column>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
      </widget>
     </item>
    </layout>
   </widget>
-  <widget class="QStatusBar" name="statusbar">
-   <property name="sizeGripEnabled">
-    <bool>false</bool>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>800</width>
+     <height>21</height>
+    </rect>
    </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="actionExit"/>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>Help</string>
+    </property>
+    <addaction name="actionAbout"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuHelp"/>
   </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionExit">
+   <property name="text">
+    <string>Exit</string>
+   </property>
+  </action>
+  <action name="actionAbout">
+   <property name="text">
+    <string>About</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>

@@ -17,6 +17,13 @@
 #include <QFutureWatcher>
 #include <QDateTime>
 #include <QQueue>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QUrl>
+#include <QUrlQuery>
+#include "iplookup.h"
+#include "ip2location.h"
 
 #ifdef HAVE_PCAP
 #include <pcap.h>
@@ -141,6 +148,18 @@ public:
     QList<QString> getTopListeners() const;
     double getNetworkLatency(const QString &host) const;
     quint64 getPacketLossRate() const;
+    
+    // Enhanced monitoring features
+    QString getTrafficType(quint16 port, int protocol) const;
+    QString getCountryFromIP(const QString &ip) const;
+    void resolveHostname(const QString &ip);
+    QMap<QString, QString> getHostnameCache() const;
+    
+    // IP2Location integration
+    IP2Location::LocationInfo getDetailedLocationFromIP(const QString &ip) const;
+    void downloadIP2LocationDatabase();
+    bool isIP2LocationReady() const;
+    QString getIP2LocationDatabaseInfo() const;
 
 signals:
     void networkDataUpdated();
@@ -150,6 +169,12 @@ signals:
     void connectionTerminated(const ConnectionHistory &connection);
     void suspiciousActivityDetected(const QString &appName, const QString &reason);
     void protocolAnomalyDetected(const QString &protocol, const QString &details);
+    
+    // IP2Location signals (forwarded from IP2Location class)
+    void databaseDownloadStarted();
+    void databaseDownloadProgress(qint64 bytesReceived, qint64 bytesTotal);
+    void databaseDownloadFinished(bool success);
+    void databaseReady();
 
 private:
 #ifdef HAVE_PCAP
@@ -174,6 +199,13 @@ private:
     QFutureWatcher<void> *m_captureWatcher; // Monitor the background thread
     QTimer *m_updateTimer; // Timer for updating active connections
     QTimer *m_analysisTimer; // Timer for traffic analysis
+    
+    // Enhanced features
+    QNetworkAccessManager *m_networkManager; // For API calls
+    QMap<QString, QString> m_hostnameCache; // IP -> Hostname cache
+    QMap<QString, QString> m_countryCache; // IP -> Country cache
+    IPLookup *m_ipLookup; // Local IP geolocation database
+    IP2Location *m_ip2Location; // Advanced IP geolocation with city/region info
     
 #ifdef HAVE_PCAP
     void processPacket(const struct pcap_pkthdr *pkthdr, const u_char *packet);

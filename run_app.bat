@@ -1,5 +1,6 @@
 @echo off
-echo Starting NetWire Application...
+echo Starting NetWire...
+cd /d "%~dp0"
 
 REM Copy required Qt6 DLLs if they don't exist
 if not exist "build\Debug\Qt6Cored.dll" (
@@ -36,9 +37,20 @@ if not exist "build\Debug\pcap.dll" (
     copy "vcpkg\installed\x64-windows\bin\pcap.dll" "build\Debug\"
 )
 
-REM Run the application
-echo Starting NetWire...
-start "" "build\Debug\NetWire.exe"
+REM Copy MSVC runtime DLLs if needed
+if not exist "build\Debug\msvcp140d.dll" (
+    echo Copying MSVC runtime DLLs...
+    copy "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Redist\MSVC\14.29.30133\x64\Microsoft.VC142.CRT\msvcp140d.dll" "build\Debug\" 2>nul
+    copy "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Redist\MSVC\14.29.30133\x64\Microsoft.VC142.CRT\vcruntime140d.dll" "build\Debug\" 2>nul
+    copy "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Redist\MSVC\14.29.30133\x64\Microsoft.VC142.CRT\vcruntime140_1d.dll" "build\Debug\" 2>nul
+)
 
-echo Application started!
-pause 
+if exist "build\Debug\NetWire.exe" (
+    echo Found NetWire executable
+    echo Starting NetWire application...
+    start "" "build\Debug\NetWire.exe"
+) else (
+    echo NetWire executable not found. Please build the project first.
+    echo Run: build_app.bat
+    pause
+) 

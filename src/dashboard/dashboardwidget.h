@@ -18,6 +18,9 @@ class DashboardWidget : public QWidget
 
 public:
     explicit DashboardWidget(QWidget *parent = nullptr);
+    
+    // Getter for network charts widget
+    NetworkCharts* getNetworkCharts() const { return m_networkCharts; }
 
 public slots:
     void updateBandwidthData(quint64 download, quint64 upload);
@@ -49,4 +52,4 @@ private:
     QGroupBox *m_timelineGroup;
 };
 
-#endif // DASHBOARDWIDGET_H 
+#endif // DASHBOARDWIDGET_H

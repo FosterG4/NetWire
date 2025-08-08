@@ -190,3 +190,10 @@ void AlertSettingsDialog::setupConnections()
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &AlertSettingsDialog::on_buttonBox_accepted);
     connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &AlertSettingsDialog::on_buttonBox_rejected);
 }
+
+void AlertSettingsDialog::setAlertManager(AlertManager *alertManager)
+{
+    // Store the alert manager reference if needed for future use
+    // For now, this method is just a placeholder as the dialog doesn't need to store the manager
+    Q_UNUSED(alertManager);
+}

@@ -1,63 +1,69 @@
 @echo off
-echo NetWire Application Deployment Script
-echo ===================================
+echo Deploying NetWire application...
 
-REM Set Qt6 paths
-set QT_BIN=C:\Qt\6.9.1\msvc2022_64\bin
-set QT_PLUGINS=C:\Qt\6.9.1\msvc2022_64\plugins
+set QT_ROOT=C:\Qt\6.9.1\msvc2022_64
 set BUILD_DIR=build\Debug
-set VCKG_BIN=vcpkg\installed\x64-windows\bin
-
-echo Checking Qt6 installation...
-if not exist "%QT_BIN%\Qt6Cored.dll" (
-    echo ERROR: Qt6 installation not found at %QT_BIN%
-    echo Please install Qt6.9.1 or update the path in this script
-    pause
-    exit /b 1
-)
+set DEPLOY_DIR=deploy\NetWire
 
 echo Creating deployment directory...
-if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+if not exist "%DEPLOY_DIR%" mkdir "%DEPLOY_DIR%"
 
-echo Copying Qt6 core DLLs...
-copy "%QT_BIN%\Qt6Cored.dll" "%BUILD_DIR%\"
-copy "%QT_BIN%\Qt6Guid.dll" "%BUILD_DIR%\"
-copy "%QT_BIN%\Qt6Widgetsd.dll" "%BUILD_DIR%\"
-copy "%QT_BIN%\Qt6Networkd.dll" "%BUILD_DIR%\"
-copy "%QT_BIN%\Qt6Chartsd.dll" "%BUILD_DIR%\"
-copy "%QT_BIN%\Qt6Concurrentd.dll" "%BUILD_DIR%\"
-copy "%QT_BIN%\Qt6OpenGLd.dll" "%BUILD_DIR%\"
-copy "%QT_BIN%\Qt6OpenGLWidgetsd.dll" "%BUILD_DIR%\"
+echo Copying executable...
+copy "%BUILD_DIR%\NetWire.exe" "%DEPLOY_DIR%\"
 
-echo Creating plugin directories...
-mkdir "%BUILD_DIR%\platforms" 2>nul
-mkdir "%BUILD_DIR%\imageformats" 2>nul
-mkdir "%BUILD_DIR%\iconengines" 2>nul
-mkdir "%BUILD_DIR%\styles" 2>nul
+echo Copying Qt6 DLLs...
+copy "%QT_ROOT%\bin\Qt6Cored.dll" "%DEPLOY_DIR%\"
+copy "%QT_ROOT%\bin\Qt6Guid.dll" "%DEPLOY_DIR%\"
+copy "%QT_ROOT%\bin\Qt6Widgetsd.dll" "%DEPLOY_DIR%\"
+copy "%QT_ROOT%\bin\Qt6Networkd.dll" "%DEPLOY_DIR%\"
+copy "%QT_ROOT%\bin\Qt6Chartsd.dll" "%DEPLOY_DIR%\"
+copy "%QT_ROOT%\bin\Qt6Concurrentd.dll" "%DEPLOY_DIR%\"
 
-echo Copying Qt6 plugins...
-copy "%QT_PLUGINS%\platforms\*.dll" "%BUILD_DIR%\platforms\"
-copy "%QT_PLUGINS%\imageformats\*.dll" "%BUILD_DIR%\imageformats\"
-copy "%QT_PLUGINS%\iconengines\*.dll" "%BUILD_DIR%\iconengines\"
-copy "%QT_PLUGINS%\styles\*.dll" "%BUILD_DIR%\styles\"
+echo Copying Qt6 platform plugins...
+if not exist "%DEPLOY_DIR%\platforms" mkdir "%DEPLOY_DIR%\platforms"
+copy "%QT_ROOT%\plugins\platforms\qwindowsd.dll" "%DEPLOY_DIR%\platforms\"
 
-echo Copying pcap.dll...
-if exist "%VCKG_BIN%\pcap.dll" (
-    copy "%VCKG_BIN%\pcap.dll" "%BUILD_DIR%\"
-    echo pcap.dll copied successfully
+echo Copying Qt6 image format plugins...
+if not exist "%DEPLOY_DIR%\imageformats" mkdir "%DEPLOY_DIR%\imageformats"
+copy "%QT_ROOT%\plugins\imageformats\qicod.dll" "%DEPLOY_DIR%\imageformats\"
+copy "%QT_ROOT%\plugins\imageformats\qjpegd.dll" "%DEPLOY_DIR%\imageformats\"
+copy "%QT_ROOT%\plugins\imageformats\qpngd.dll" "%DEPLOY_DIR%\imageformats\"
+copy "%QT_ROOT%\plugins\imageformats\qsvgd.dll" "%DEPLOY_DIR%\imageformats\"
+
+echo Copying Qt6 icon engine plugins...
+if not exist "%DEPLOY_DIR%\iconengines" mkdir "%DEPLOY_DIR%\iconengines"
+copy "%QT_ROOT%\plugins\iconengines\qsvgicond.dll" "%DEPLOY_DIR%\iconengines\"
+
+echo Copying Qt6 style plugins...
+if not exist "%DEPLOY_DIR%\styles" mkdir "%DEPLOY_DIR%\styles"
+copy "%QT_ROOT%\plugins\styles\qwindowsvistastyled.dll" "%DEPLOY_DIR%\styles\"
+
+echo Copying libpcap DLL...
+if exist "vcpkg\installed\x64-windows\bin\pcap.dll" (
+    copy "vcpkg\installed\x64-windows\bin\pcap.dll" "%DEPLOY_DIR%\"
 ) else (
-    echo WARNING: pcap.dll not found at %VCKG_BIN%
-    echo Network monitoring features may not work
+    echo Warning: pcap.dll not found in vcpkg directory
+    echo Please install Npcap or ensure libpcap is properly installed
 )
 
-echo.
-echo Deployment completed successfully!
-echo.
-echo Files deployed:
-echo - Qt6 core DLLs: 8 files
-echo - Qt6 plugins: platforms, imageformats, iconengines, styles
-echo - pcap.dll: network monitoring support
-echo.
-echo You can now run the application using: run_app.bat
-echo.
+echo Copying resources...
+if exist "resources" (
+    xcopy "resources" "%DEPLOY_DIR%\resources\" /E /I /Y
+)
+
+echo Creating README...
+echo NetWire - Network Monitor > "%DEPLOY_DIR%\README.txt"
+echo. >> "%DEPLOY_DIR%\README.txt"
+echo This application requires the following dependencies: >> "%DEPLOY_DIR%\README.txt"
+echo - Qt6 Runtime Libraries >> "%DEPLOY_DIR%\README.txt"
+echo - Npcap or WinPcap for network monitoring >> "%DEPLOY_DIR%\README.txt"
+echo. >> "%DEPLOY_DIR%\README.txt"
+echo If you encounter missing DLL errors: >> "%DEPLOY_DIR%\README.txt"
+echo 1. Install Qt6 Runtime from https://www.qt.io/download >> "%DEPLOY_DIR%\README.txt"
+echo 2. Install Npcap from https://npcap.com/ >> "%DEPLOY_DIR%\README.txt"
+echo. >> "%DEPLOY_DIR%\README.txt"
+echo Run NetWire.exe to start the application. >> "%DEPLOY_DIR%\README.txt"
+
+echo Deployment complete!
+echo Application is available in: %DEPLOY_DIR%
 pause

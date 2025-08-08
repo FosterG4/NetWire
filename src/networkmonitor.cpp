@@ -19,6 +19,11 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QHostInfo>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QUrl>
+#include <QUrlQuery>
 
 // Platform-specific includes
 #ifdef Q_OS_WIN
@@ -27,10 +32,12 @@
 #include <iphlpapi.h>
 #include <psapi.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "kernel32.lib")
 #elif defined(Q_OS_LINUX)
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -92,6 +99,9 @@ NetworkMonitor::NetworkMonitor(QObject *parent)
 #endif
     , m_isCapturing(false)
     , m_captureWatcher(new QFutureWatcher<void>(this))
+    , m_networkManager(new QNetworkAccessManager(this))
+    , m_ipLookup(new IPLookup())
+    , m_ip2Location(new IP2Location(this))
 {
     // Initialize network on Windows
 #ifdef Q_OS_WIN
@@ -100,35 +110,68 @@ NetworkMonitor::NetworkMonitor(QObject *parent)
         qWarning() << "WSAStartup failed";
     }
 #endif
-    
-    // Start a timer to periodically update active connections
+
+    // Set up timers with reduced frequency to improve performance
     m_updateTimer = new QTimer(this);
+    m_updateTimer->setInterval(3000); // Update every 3 seconds (reduced from 1 second)
     connect(m_updateTimer, &QTimer::timeout, this, &NetworkMonitor::updateActiveConnections);
-    m_updateTimer->start(5000); // Update every 5 seconds
     
-    // Start analysis timer for Phase 2 features
     m_analysisTimer = new QTimer(this);
+    m_analysisTimer->setInterval(10000); // Analyze every 10 seconds (reduced frequency)
     connect(m_analysisTimer, &QTimer::timeout, this, &NetworkMonitor::analyzeTrafficPatterns);
-    m_analysisTimer->start(10000); // Analyze every 10 seconds
     
-    // Phase 2: Monitor all applications dynamically (no hardcoded list)
-    // Applications will be automatically detected and monitored as they make network connections
-    
-    // Connect signals for Phase 2 features
+    // Connect capture watcher
     connect(m_captureWatcher, &QFutureWatcher<void>::finished, this, [this]() {
-        if (m_isCapturing) {
-            // Restart capture if it was interrupted
-            qDebug() << "Capture thread finished, restarting...";
-            startCapture(m_currentInterface);
-        }
+        qDebug() << "Packet capture finished";
     });
+    
+    // Initialize connection tracking
+    m_activeConnections.clear();
+    m_connectionHistory.clear();
+    m_processStats.clear();
+    m_protocolStats.clear();
+    m_portStats.clear();
+    
+    // Start timers
+    m_updateTimer->start();
+    m_analysisTimer->start();
+    
+    // Connect IP2Location signals and forward them
+    connect(m_ip2Location, &IP2Location::databaseDownloadStarted, this, [this]() {
+        qDebug() << "IP2Location database download started";
+        emit databaseDownloadStarted();
+    });
+    
+    connect(m_ip2Location, &IP2Location::databaseDownloadProgress, this, [this](qint64 bytesReceived, qint64 bytesTotal) {
+        emit databaseDownloadProgress(bytesReceived, bytesTotal);
+    });
+    
+    connect(m_ip2Location, &IP2Location::databaseDownloadFinished, this, [this](bool success) {
+        qDebug() << "IP2Location database download" << (success ? "completed" : "failed");
+        emit databaseDownloadFinished(success);
+    });
+    
+    connect(m_ip2Location, &IP2Location::databaseReady, this, [this]() {
+        qDebug() << "IP2Location database ready for use";
+        emit databaseReady();
+    });
+    
+    // Auto-download database if not available
+    if (!m_ip2Location->isDatabaseReady()) {
+        QTimer::singleShot(5000, this, [this]() { // Delay download by 5 seconds
+            m_ip2Location->downloadDatabase();
+        });
+    }
 }
 
 NetworkMonitor::~NetworkMonitor()
 {
-    // Stop the update timer
+    // Stop all timers
     if (m_updateTimer) {
         m_updateTimer->stop();
+    }
+    if (m_analysisTimer) {
+        m_analysisTimer->stop();
     }
     
     // Stop capture and wait for background thread to finish
@@ -144,6 +187,19 @@ NetworkMonitor::~NetworkMonitor()
         pcap_close(m_pcapHandle);
     }
 #endif
+    
+    // Clear caches to free memory
+    m_hostnameCache.clear();
+    m_countryCache.clear();
+    m_activeConnections.clear();
+    m_connectionHistory.clear();
+    m_processStats.clear();
+    m_protocolStats.clear();
+    m_portStats.clear();
+    
+    // Clean up IP lookup
+    delete m_ipLookup;
+    m_ipLookup = nullptr;
     
     // Cleanup Windows Sockets API
 #ifdef Q_OS_WIN
@@ -335,19 +391,51 @@ QMap<QString, NetworkMonitor::NetworkStats> NetworkMonitor::getStatsByApplicatio
 QString NetworkMonitor::getProcessNameFromPid(qint64 pid) const
 {
 #ifdef Q_OS_WIN
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-    if (hProcess == NULL) {
-        return QString();
-    }
+    // Try multiple methods to get process name, starting with most privileged
     
-    wchar_t processName[MAX_PATH] = L"<unknown>";
-    if (GetModuleBaseNameW(hProcess, NULL, processName, MAX_PATH) == 0) {
+    // Method 1: Try with PROCESS_QUERY_LIMITED_INFORMATION (works better with admin rights)
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (hProcess != NULL) {
+        DWORD dwSize = MAX_PATH;
+        wchar_t processName[MAX_PATH];
+        if (QueryFullProcessImageNameW(hProcess, 0, processName, &dwSize)) {
+            CloseHandle(hProcess);
+            QString fullPath = QString::fromWCharArray(processName);
+            return QFileInfo(fullPath).fileName(); // Extract just the filename
+        }
         CloseHandle(hProcess);
-        return QString();
     }
     
-    CloseHandle(hProcess);
-    return QString::fromWCharArray(processName);
+    // Method 2: Try with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (hProcess != NULL) {
+        wchar_t processName[MAX_PATH] = L"<unknown>";
+        if (GetModuleBaseNameW(hProcess, NULL, processName, MAX_PATH) > 0) {
+            CloseHandle(hProcess);
+            return QString::fromWCharArray(processName);
+        }
+        CloseHandle(hProcess);
+    }
+    
+    // Method 3: Use CreateToolhelp32Snapshot (doesn't require special privileges)
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W pe32;
+        pe32.dwSize = sizeof(PROCESSENTRY32W);
+        
+        if (Process32FirstW(hSnapshot, &pe32)) {
+            do {
+                if (pe32.th32ProcessID == static_cast<DWORD>(pid)) {
+                    CloseHandle(hSnapshot);
+                    return QString::fromWCharArray(pe32.szExeFile);
+                }
+            } while (Process32NextW(hSnapshot, &pe32));
+        }
+        CloseHandle(hSnapshot);
+    }
+    
+    // If all methods fail, return a formatted PID string
+    return QString("PID:%1").arg(pid);
 #elif defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
     QFileInfo info(QString("/proc/%1/comm").arg(pid));
     if (info.exists()) {
@@ -371,19 +459,33 @@ QString NetworkMonitor::getProcessNameFromPid(qint64 pid) const
 QString NetworkMonitor::getProcessPathFromPid(qint64 pid) const
 {
 #ifdef Q_OS_WIN
-    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-    if (hProcess == NULL) {
-        return QString();
-    }
+    // Try multiple methods to get process path
     
-    wchar_t processPath[MAX_PATH];
-    if (GetModuleFileNameExW(hProcess, NULL, processPath, MAX_PATH) == 0) {
+    // Method 1: Try with PROCESS_QUERY_LIMITED_INFORMATION (works better with admin rights)
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (hProcess != NULL) {
+        DWORD dwSize = MAX_PATH;
+        wchar_t processPath[MAX_PATH];
+        if (QueryFullProcessImageNameW(hProcess, 0, processPath, &dwSize)) {
+            CloseHandle(hProcess);
+            return QString::fromWCharArray(processPath);
+        }
         CloseHandle(hProcess);
-        return QString();
     }
     
-    CloseHandle(hProcess);
-    return QString::fromWCharArray(processPath);
+    // Method 2: Try with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (hProcess != NULL) {
+        wchar_t processPath[MAX_PATH];
+        if (GetModuleFileNameExW(hProcess, NULL, processPath, MAX_PATH) > 0) {
+            CloseHandle(hProcess);
+            return QString::fromWCharArray(processPath);
+        }
+        CloseHandle(hProcess);
+    }
+    
+    // If both methods fail, return empty string
+    return QString();
 #elif defined(Q_OS_LINUX) || defined(Q_OS_ANDROID)
     QFileInfo exeInfo(QString("/proc/%1/exe").arg(pid));
     if (exeInfo.exists()) {
@@ -464,6 +566,40 @@ void NetworkMonitor::updateActiveConnections()
                     info.protocol = 6; // TCP
                     info.processId = pTcpTable->table[i].dwOwningPid;
                     info.processName = getProcessNameFromPid(info.processId);
+                    info.processPath = getProcessPathFromPid(info.processId);
+                    info.processIcon = getProcessIcon(info.processPath);
+                    info.connectionTime = QDateTime::currentDateTime();
+                    info.lastActivity = QDateTime::currentDateTime();
+                    
+                    // Determine connection state
+                    DWORD state = pTcpTable->table[i].dwState;
+                    switch (state) {
+                        case MIB_TCP_STATE_CLOSED: info.connectionState = "CLOSED"; break;
+                        case MIB_TCP_STATE_LISTEN: info.connectionState = "LISTENING"; break;
+                        case MIB_TCP_STATE_SYN_SENT: info.connectionState = "SYN_SENT"; break;
+                        case MIB_TCP_STATE_SYN_RCVD: info.connectionState = "SYN_RECEIVED"; break;
+                        case MIB_TCP_STATE_ESTAB: info.connectionState = "ESTABLISHED"; break;
+                        case MIB_TCP_STATE_FIN_WAIT1: info.connectionState = "FIN_WAIT1"; break;
+                        case MIB_TCP_STATE_FIN_WAIT2: info.connectionState = "FIN_WAIT2"; break;
+                        case MIB_TCP_STATE_CLOSE_WAIT: info.connectionState = "CLOSE_WAIT"; break;
+                        case MIB_TCP_STATE_CLOSING: info.connectionState = "CLOSING"; break;
+                        case MIB_TCP_STATE_LAST_ACK: info.connectionState = "LAST_ACK"; break;
+                        case MIB_TCP_STATE_TIME_WAIT: info.connectionState = "TIME_WAIT"; break;
+                        case MIB_TCP_STATE_DELETE_TCB: info.connectionState = "DELETE_TCB"; break;
+                        default: info.connectionState = "UNKNOWN"; break;
+                    }
+                    
+                    // Get service name and traffic type
+                    info.serviceName = getTrafficType(info.remotePort, info.protocol);
+                    
+                    // Resolve hostname and country (asynchronously)
+                    if (!info.remoteAddress.isEmpty() && info.remoteAddress != "0.0.0.0") {
+                        resolveHostname(info.remoteAddress);
+                        // Get hostname from cache if available
+                        if (m_hostnameCache.contains(info.remoteAddress)) {
+                            info.remoteHostname = m_hostnameCache.value(info.remoteAddress);
+                        }
+                    }
                     
                     m_activeConnections.append(info);
                 }
@@ -493,6 +629,14 @@ void NetworkMonitor::updateActiveConnections()
                     info.protocol = 17; // UDP
                     info.processId = pUdpTable->table[i].dwOwningPid;
                     info.processName = getProcessNameFromPid(info.processId);
+                    info.processPath = getProcessPathFromPid(info.processId);
+                    info.processIcon = getProcessIcon(info.processPath);
+                    info.connectionTime = QDateTime::currentDateTime();
+                    info.lastActivity = QDateTime::currentDateTime();
+                    info.connectionState = "LISTENING"; // UDP is connectionless
+                    
+                    // Get service name and traffic type
+                    info.serviceName = getTrafficType(info.localPort, info.protocol);
                     
                     m_activeConnections.append(info);
                 }
@@ -1237,4 +1381,144 @@ QList<NetworkMonitor::ConnectionInfo> NetworkMonitor::filterConnections(const QL
     }
     
     return filtered;
+}
+
+// Enhanced monitoring features implementation
+QString NetworkMonitor::getTrafficType(quint16 port, int protocol) const
+{
+    // Common port mappings for traffic type identification
+    static const QMap<quint16, QString> tcpPorts = {
+        {20, "FTP-Data"}, {21, "FTP"}, {22, "SSH"}, {23, "Telnet"},
+        {25, "SMTP"}, {53, "DNS"}, {80, "HTTP"}, {110, "POP3"},
+        {143, "IMAP"}, {443, "HTTPS"}, {993, "IMAPS"}, {995, "POP3S"},
+        {465, "SMTPS"}, {587, "SMTP"}, {990, "FTPS"}, {3389, "RDP"},
+        {5432, "PostgreSQL"}, {3306, "MySQL"}, {1433, "MSSQL"},
+        {6379, "Redis"}, {27017, "MongoDB"}, {8080, "HTTP-Alt"},
+        {8443, "HTTPS-Alt"}, {9200, "Elasticsearch"}, {5672, "AMQP"},
+        {6667, "IRC"}, {194, "IRC"}, {6697, "IRC-SSL"},
+        {1935, "RTMP"}, {554, "RTSP"}, {5060, "SIP"}, {5061, "SIP-TLS"}
+    };
+    
+    static const QMap<quint16, QString> udpPorts = {
+        {53, "DNS"}, {67, "DHCP-Server"}, {68, "DHCP-Client"},
+        {69, "TFTP"}, {123, "NTP"}, {161, "SNMP"}, {162, "SNMP-Trap"},
+        {514, "Syslog"}, {1194, "OpenVPN"}, {1701, "L2TP"},
+        {4500, "IPSec"}, {500, "IPSec"}, {1812, "RADIUS"},
+        {1813, "RADIUS-Accounting"}, {5353, "mDNS"},
+        {137, "NetBIOS-NS"}, {138, "NetBIOS-DGM"}, {139, "NetBIOS-SSN"}
+    };
+    
+    if (protocol == 6) { // TCP
+        return tcpPorts.value(port, QString("TCP-%1").arg(port));
+    } else if (protocol == 17) { // UDP
+        return udpPorts.value(port, QString("UDP-%1").arg(port));
+    }
+    
+    return QString("Unknown-%1").arg(port);
+}
+
+QString NetworkMonitor::getCountryFromIP(const QString &ip) const
+{
+    // Check cache first
+    if (m_countryCache.contains(ip)) {
+        return m_countryCache.value(ip);
+    }
+    
+    QString country;
+    
+    // Try IP2Location first (more accurate, supports both IPv4 and IPv6)
+    if (m_ip2Location && m_ip2Location->isDatabaseReady()) {
+        IP2Location::LocationInfo location = m_ip2Location->getLocationFromIP(ip);
+        country = location.toDisplayString();
+        
+        // If we got a valid result, cache it
+        if (!country.isEmpty() && country != "Unknown") {
+            m_countryCache[ip] = country;
+            return country;
+        }
+    }
+    
+    // Fallback to basic IP lookup for IPv4 only
+    QHostAddress addr(ip);
+    if (addr.protocol() == QAbstractSocket::IPv4Protocol) {
+        country = m_ipLookup->getCountryFromIP(ip);
+    } else {
+        country = "Unknown (IPv6)";
+    }
+    
+    // Cache the result for future lookups
+    m_countryCache[ip] = country;
+    
+    return country;
+}
+
+void NetworkMonitor::resolveHostname(const QString &ip)
+{
+    // Check cache first
+    if (m_hostnameCache.contains(ip)) {
+        return;
+    }
+    
+    // Don't resolve local IPs
+    QHostAddress addr(ip);
+    if (addr.isLoopback() || addr.toString().startsWith("192.168.") || 
+        addr.toString().startsWith("10.") || addr.toString().startsWith("172.")) {
+        m_hostnameCache[ip] = ip;
+        return;
+    }
+    
+    // Disable hostname resolution to prevent crashes and improve performance
+    // TODO: Re-enable with proper error handling and rate limiting
+    m_hostnameCache[ip] = ip;
+}
+
+QMap<QString, QString> NetworkMonitor::getHostnameCache() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_hostnameCache;
+}
+
+// IP2Location integration methods
+IP2Location::LocationInfo NetworkMonitor::getDetailedLocationFromIP(const QString &ip) const
+{
+    if (m_ip2Location && m_ip2Location->isDatabaseReady()) {
+        IP2Location::LocationInfo location = m_ip2Location->getLocationFromIP(ip);
+        
+        // If we got a valid result, return it
+        if (!location.country.isEmpty() && location.country != "Unknown") {
+            return location;
+        }
+    }
+    
+    // Return empty location info if IP2Location is not available
+    IP2Location::LocationInfo emptyInfo;
+    emptyInfo.country = "Unknown";
+    
+    // For IPv6 addresses, indicate this
+    QHostAddress addr(ip);
+    if (addr.protocol() == QAbstractSocket::IPv6Protocol) {
+        emptyInfo.country = "Unknown (IPv6)";
+    }
+    
+    return emptyInfo;
+}
+
+void NetworkMonitor::downloadIP2LocationDatabase()
+{
+    if (m_ip2Location) {
+        m_ip2Location->downloadDatabase();
+    }
+}
+
+bool NetworkMonitor::isIP2LocationReady() const
+{
+    return m_ip2Location && m_ip2Location->isDatabaseReady();
+}
+
+QString NetworkMonitor::getIP2LocationDatabaseInfo() const
+{
+    if (m_ip2Location) {
+        return m_ip2Location->getDatabaseInfo();
+    }
+    return "IP2Location not initialized";
 }
